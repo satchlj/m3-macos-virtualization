@@ -69,6 +69,11 @@ exception for the QEMU-derived layout module and preserved upstream notices.
 See [third-party credits](THIRD_PARTY_NOTICES.md) and the
 [public-release review](docs/PUBLIC-RELEASE-REVIEW.md).
 
+## Maintainer
+
+Maintained by **Satya Benson**. For questions, collaboration, or research
+feedback, use [my contact page](https://satchlj.com/contact).
+
 ## Credits and project identity
 
 This is an independent research project built on Asahi Linux’s m1n1 and

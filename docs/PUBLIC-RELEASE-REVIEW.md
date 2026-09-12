@@ -138,3 +138,35 @@ outside the intended release. No GitHub remote is configured in this checkout at
 review time. No repository has been created or made public by this review.
 
 The original cleanup validation checked AST-preserving refactoring, pinned patch and license identities, and local links without executing hardware. The refreshed snapshot also includes the Phase 5.3 descriptor/leaf gates and synthetic regressions: 515 configured host tests pass with 5 private-evidence skips, and documentation reachability passes. Attempt 119 hardware evidence is represented only by concise findings and hashes; raw reports, event journals, device trees, payloads, serial paths, and archives remain excluded.
+
+## Publication audit — September 11, 2026
+
+Maintainer: **Satya Benson** · [Contact](https://satchlj.com/contact).
+
+The publication audit covered `main` through
+`15410714443bdeace25cdb4daab827160fea6cbe`: five commits, 337 unique
+historical file blobs, and 237 historical paths. Every blob was decoded as
+UTF-8 text; no binary payloads, private home-directory paths, credential URLs,
+common token signatures, or suspicious private-input filenames were found by
+the targeted scan. Commit metadata uses the public snapshot placeholder
+identity. Public upstream attribution addresses and synthetic test addresses
+were retained. Generic mentions of Tailscale contain no private endpoint.
+
+Gitleaks 8.30.1 also scanned the release history. Its ten findings were manually
+reviewed: all match the names of five pairs of Arm pointer-authentication
+registers, once in the original probe and once in its extracted constants
+module. These are register identifiers, not credential values. No actual
+credential was identified. Pattern scanning and manual review cannot guarantee
+that all sensitive information has been detected.
+
+Publication is limited to the reviewed `main` history plus this audit and
+maintainer-contact update. Local editor checkpoint refs, ignored working files,
+private evidence, and fetched dependencies are excluded. The publication push
+uses an explicit commit-to-`main` refspec, without tags or mirror mode.
+
+Fresh-environment setup and GitHub CI remain deferred. Earlier host-test results
+are not a substitute for a fresh setup or independent hardware reproduction.
+
+Pre-publication validation on the configured local environment passed: 515
+host tests discovered, five skipped; documentation checks reached all 100
+Markdown files. No hardware was accessed during this audit.

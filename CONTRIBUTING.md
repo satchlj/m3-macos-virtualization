@@ -4,6 +4,8 @@ Start with the [project overview](docs/OVERVIEW.md) and
 [current status](docs/STATUS.md). This is a research snapshot with substantial
 host-side coverage, not a supported operating-system installation.
 
+Maintainer: **Satya Benson** · [Contact](https://satchlj.com/contact).
+
 ## Useful contributions
 
 - Improve documentation, diagrams, terminology, and links between claims and evidence.
