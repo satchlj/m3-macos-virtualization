@@ -1,5 +1,10 @@
 # attempt-27 — clean real-guarded boot with the full region set
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 ## What changed since attempt-25
 attempt-25 reached the SPTM boot panic halt (0xf8b88) at step ~7.8M, but
 because it had patched that halt to `genter` (first-contact) and injected an

@@ -1,5 +1,10 @@
 # attempt-19 — the divert trigger: SPTM's first guarded msr is undefined (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Ran with the new `--single-step-window 7780000:20000` + `--stop-on-guarded-vector`.
 The run batched to the window, single-stepped across the genter, and **stopped at
 the first divert with zero overshoot** — capturing the *original* trigger syndrome

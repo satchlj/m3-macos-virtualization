@@ -1,5 +1,10 @@
 # Wake-path analysis — how SPTM leaves the WFE idle (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Offline, read-only disassembly of the WFE idle reached in attempt-11 and the
 paths that lead out of it. All addresses are `sptm/__TEXT_EXEC` (image virtual
 base `0xfffffe0007004000`); disassembled from the verified payload via the

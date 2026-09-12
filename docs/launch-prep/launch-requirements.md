@@ -1,5 +1,10 @@
 > **Superseded by hardware, 2026-09-11:** The slot `0x98928` and the erets described below target TXM, not XNU. The candidate XNU entry is in `0x98930`. Full SPTM boot and XNU launch are unproved. Treat the interpretations below as historical; see [the correction](world-switch-is-the-launch.md).
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 # SPTM XNU-launch requirements (decoded 2026-09-10)
 
 SPTM build `SPTM-611.161.4|2026-07-31` (t8122 / Tahoe 25G83). SPTM runs at EL2+VHE

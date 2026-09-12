@@ -1,5 +1,10 @@
 # Opt-in TPIDR_GL2 firmware fast shadow
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 `--xnu-tpidr-gl2-fast-shadow` is a narrow performance experiment for the
 existing `TPIDR_GL2` trap-and-host-shadow model. It requires `--xnu-run` and a
 pinned m1n1 runtime exposing these proxy methods:

@@ -1,5 +1,10 @@
 # attempt-17 divert analysis — the post-genter spin at 0x100033f1a00 (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Combines the full-trace pass over attempt-17 (offline) with a source study of the
 vel2 GXF/guarded-exception path. Result: a source-grounded hypothesis and two
 falsifiable predictions the staged attempt-18 snapshot will decide.

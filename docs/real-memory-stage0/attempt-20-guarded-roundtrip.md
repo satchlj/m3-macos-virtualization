@@ -1,5 +1,10 @@
 # attempt-20 — GL2 shadow works: first complete guarded round-trip (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 With `TPIDR_GL2` moved out of `real_native` into the apple_shadow set (one-line
 probe fix, no firmware rebuild), SPTM's first guarded instruction no longer faults.
 Config: same as attempt-19 (`single_step_window 7780000:20000`,

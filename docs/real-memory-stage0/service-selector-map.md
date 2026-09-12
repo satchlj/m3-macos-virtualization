@@ -1,5 +1,10 @@
 # SPTM guarded-call service = a GXF world-transition state machine (2026-09-10, complete)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Full decode of the guarded-call service (verified against `sptm.macho`,
 SHA `6ab3f26f…`). The classifier at `0xfffffe00070e8d4c` maps the x16 selector to an
 EVENT, then `dispatch_state_machine` (`0xe842c`) runs `transition[state][event]` from

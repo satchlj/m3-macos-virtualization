@@ -1,5 +1,10 @@
 # Apple physical-timer frontier after attempt 65
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 65 (`fdc44c2b-53dd-40f3-9b5f-4bb9c37de013`) first serviced the
 architectural `CNTP_CTL_EL0` write through the guest `CNTP_CTL_EL02` bank.  The
 run then stopped cleanly at runtime PC `0xfffffe002bf923b4` with ESR

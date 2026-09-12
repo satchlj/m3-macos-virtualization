@@ -1,5 +1,10 @@
 # XNU entry prefix audit, 2026-09-11
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 This is an offline audit of the original kernelcache
 `artifacts/payloads/extracted/kernelcache.macho` (SHA-256
 `e342c14cd98c62a279c7ff45c8acfd69f2681ac51f029eaee244e82826cb4787`).

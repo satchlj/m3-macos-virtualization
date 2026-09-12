@@ -1,5 +1,10 @@
 # attempt-25 — ENTER_GUEST panics from idle: SPTM never reaches launch-ready (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 First launch attempt: `--guarded-call-selectors 0x1b` (ENTER_GUEST) from the patched
 idle. Result:
 

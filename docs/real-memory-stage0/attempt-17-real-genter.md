@@ -1,5 +1,10 @@
 # attempt-17 — first real guarded execution (native genter worked) (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 The EL2 SPRR/GXF context fix (`u.msr(SPRR_CONFIG_EL1,1)` + `u.msr(GXF_CONFIG_EL1,1)`
 before the guest runs, mirroring the vel2 HV) was the missing piece. Config:
 `--real-guarded` hybrid (native config/entry, EL12-mapped perms/APCTL/GL bank),

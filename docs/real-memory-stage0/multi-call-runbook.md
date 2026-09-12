@@ -1,5 +1,10 @@
 # Multi-call run — ready-to-go runbook (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Everything is built and validated offline. When target M3 is power-cycled, this is the
 exact sequence for the first multi-call guarded run (attempt-24).
 

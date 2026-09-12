@@ -1,5 +1,10 @@
 # Launch harness — what already exists (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Investigating the loader/layout revealed the boot harness is **largely already built**.
 This narrows the launch prep dramatically.
 

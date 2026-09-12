@@ -1,5 +1,10 @@
 # Post-TXM return and the XNU GEXIT handoff
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 > Superseded by attempt 51: the `0x13c9` native return caused an illegal-return
 > state (`0x1013c4`). Normalizing it to physical EL1h `0x13c5` cleared the fault
 > without permission changes and established actual XNU instruction execution.

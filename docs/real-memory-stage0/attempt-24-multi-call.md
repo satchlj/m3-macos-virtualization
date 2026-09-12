@@ -1,5 +1,10 @@
 # attempt-24 — multi-call driver works; idle rejects general SPTM calls (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 First run of the multi-call driver (`--guarded-call-selectors`). It issued
 `x16 = 0x100000000` (CALL_SPTM, func index 1) from the patched idle genter.
 

@@ -1,5 +1,10 @@
 # TXM's first post-relocation operation is an SVC
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Offline inspection of attempt 40 identified its original trigger as TXM's first
 `svc #0`, rather than an Image4 panic. Attempt 45 then confirmed that path on
 hardware with the corrected guarded VBAR and no instruction patch.

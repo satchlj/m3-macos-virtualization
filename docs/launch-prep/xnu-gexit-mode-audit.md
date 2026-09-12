@@ -1,5 +1,10 @@
 # XNU launch state audit, 2026-09-11
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 50 (`69692c95-eb31-4e6d-aaee-5b8ebf69d896`) captured the entry leaf
 and live guest permission aliases at the existing pre-GEXIT trap. The leaf is
 SPRR index 10, PPERM nibble 5, UPERM nibble 0. The pinned permission model gives

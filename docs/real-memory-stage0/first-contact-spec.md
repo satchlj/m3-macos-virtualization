@@ -1,5 +1,10 @@
 # First real genter — contact spec (2026-09-10, final prep)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Tightly-bounded consolidation of what a first real guarded call needs, so the
 next step is building, not more analysis. Draws on
 [call-abi.md](call-abi.md), [genter-driver-design.md](genter-driver-design.md),

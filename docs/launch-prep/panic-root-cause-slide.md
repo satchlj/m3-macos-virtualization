@@ -1,5 +1,10 @@
 # Boot panic root cause: SPTM can't look up the 'slide' image region (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Extracted from attempt-25's existing trace (first panic entry 0xf8ca0 at idx
 7,811,800; no new run needed).
 

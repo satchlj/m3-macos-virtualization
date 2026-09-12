@@ -1,5 +1,10 @@
 # Pinned TXM SVC return catalog
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 This catalog is for `local/payload/txm.macho`, SHA-256
 `df750ed7e0cb8f9ceff6e0d78a58b0442668367cdd896d39334b60fa09e67cef`.
 It was produced offline by scanning every four-byte-aligned instruction in the

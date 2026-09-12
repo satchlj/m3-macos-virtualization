@@ -1,5 +1,9 @@
 # Observation-grade virtual guarded world
 
+> Historical research context. Status and proposed next steps below describe the
+> original investigation. See [current project status](STATUS.md) for later
+> results and remaining milestones.
+
 Attempt 3 stopped on SPTM writing `GXF_CONFIG_EL1 = 1`; the next instructions
 set `GXF_PABENTRY_EL1`/`GXF_ENTRY_EL1` and execute `genter`. To observe what
 the monitor does in guarded execution without enforcing anything,

@@ -1,5 +1,10 @@
 # SPTM guarded per-CPU init sequence (from attempt-20, 2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 First characterization of real guarded execution: the ~22-instruction guarded
 episode SPTM runs per CPU, captured single-stepped in attempt-20 (indices
 7,786,859–7,786,882, one genter→gexit round-trip).

@@ -1,5 +1,10 @@
 # attempt-18 — divert confirmed: guarded instruction-abort on unset guarded vectors (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Batched `--real-guarded` run (config `attempt-18.config.json`, `single_step_after=0`,
 `stage_el2_config=true`). Clean: `proxy_alive_after_exit=true`, non-mutating,
 installed boot intact. Ran 659 s to the 16 M-step budget (`stop_reason

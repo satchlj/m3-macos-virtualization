@@ -1,5 +1,9 @@
 # MMU and SPTM progress — 2026-09-09
 
+> Historical research context. Status and proposed next steps below describe the
+> original investigation. See [current project status](STATUS.md) for later
+> results and remaining milestones.
+
 ## Hardware results
 
 The M3 passed the invalid-MMU-request test and the non-VHE MMU alias test. The latter writes guest-owned 16 KiB tables, enables guest stage 1 through the virtual EL2 adapter, reads `0x1122334455667788` at virtual address `0x40000000` from a distinct physical page, disables translation, and returns to the USB proxy. Stage 2 maps only the allocated test RAM.

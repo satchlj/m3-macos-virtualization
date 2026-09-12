@@ -1,5 +1,9 @@
 # Guest boot first: evidence and next experiment
 
+> Historical research context. Status and proposed next steps below describe the
+> original investigation. See [current project status](STATUS.md) for later
+> results and remaining milestones.
+
 Baseline: m1n1 commit in `upstream.lock`. Official guest support currently includes Sonoma 14.8.3 for M1–M3, not a general guarantee for modern Tahoe. A local port need not use that baseline, but support cannot be established by a version alias.
 
 ## Findings grounded in public source

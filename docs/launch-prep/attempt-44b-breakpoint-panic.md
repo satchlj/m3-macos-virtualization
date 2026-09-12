@@ -1,5 +1,10 @@
 # Attempt 44b: VBAR worked; the TXM breakpoint caused the panic
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 44b proves the `VBAR_GL1` correction worked. It also proves that the
 transient HVC installed at TXM `+0x4c` did not behave as a host breakpoint: TXM
 executed it at GL0, it became an undefined instruction delivered to SPTM, and

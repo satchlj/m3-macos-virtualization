@@ -1,5 +1,10 @@
 # Real-memory phase — Stage 0 summary (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Wave 1 of Stage 0 is complete: four independent, read-only offline analyses of
 the attempt 4–9 artifacts and the sptm image, run in parallel, no hardware
 touched. This consolidates them and defines the one sequential hardware step that

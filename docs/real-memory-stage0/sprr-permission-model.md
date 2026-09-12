@@ -1,5 +1,10 @@
 # Stage-0 offline SPRR permission model
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Scope: **offline, read-only** validation of the Apple SPRR permission model
 against the captured monitor tables and permission registers, in service of the
 standing rule that **no hardware SPRR enable happens until the permission model

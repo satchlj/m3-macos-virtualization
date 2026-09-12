@@ -1,5 +1,10 @@
 # XNU preserved panic-log memory
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 62 stopped at runtime `0xfffffe002bf3f3f4`, `ldr w9, [x0]`, with
 ESR `0x93890006` and FAR `0xfffffe003a014000`. Its saved guest tables resolve
 that address to physical `0x103e6c28000`. The host and guest device trees bind

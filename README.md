@@ -9,69 +9,50 @@ host tooling, tests, two pinned m1n1 patch series, and concise technical notes. 
 does **not** contain Apple firmware, kernel collections, device trees, raw traces,
 credentials, or a prebuilt boot image.
 
-## Current result
+## Start here
 
-On 2026-09-11, source- and live-byte-verified hardware runs completed XNU
-Phase 5.3 allocation and page-table-frame retype sequences on M3/J613:
+| You want to… | Read |
+| --- | --- |
+| Understand the project and terminology | [Overview](docs/OVERVIEW.md) |
+| See what works and what remains open | [Current status and evidence](docs/STATUS.md) |
+| Explore without a physical target | [Host test guide](tests/README.md) |
+| Find a script or understand code organization | [Script map](scripts/README.md) · [Maintenance review](docs/CODE-REVIEW.md) |
+| Trace a research finding | [Complete documentation index](docs/README.md) |
+| Reproduce the source environment | [Setup guide](setup/README.md) |
+| Make a contribution | [Contributing](CONTRIBUTING.md) |
 
-- XNU entered the allocation call and returned an owned 16 KiB physical page.
-- One transaction changed an authoritative SPTM frame record from
-  `XNU_DEFAULT` (`0x0b`) to `TXM_DEFAULT` (`0x29`).
-- A following bounded survey observed four intermediate retypes and stopped on
-  an exact `XNU_DEFAULT` to `XNU_PAGE_TABLE` (`0x14`) transition with flags `3`.
-- Each selector-1 `genter` completed its XNU/SPTM round trip and returned to the
-  authenticated XNU wrapper path.
-- The bounded run returned cleanly and the m1n1 proxy remained responsive.
+## Current result — September 11, 2026
 
-This is meaningful dynamic-memory-service progress, but it does **not** establish
-a general allocator, a runtime Stage-1 descriptor mutation, kernel bring-up,
-macOS boot, or GPU support.
-See [project status](docs/STATUS.md) for the roadmap and evidence boundary.
+Bounded M3/J613 experiments observed early XNU execution, a kernel allocation,
+and SPTM frame-ownership transitions, including a page-table-frame retype.
+The guest returned cleanly and the m1n1 proxy remained responsive.
 
-## Reproduce the host environment
+**A macOS boot has not been demonstrated.** The corresponding runtime Stage-1
+page-table descriptor mutation, general kernel/platform bring-up, and GPU support
+remain unestablished. [STATUS.md](docs/STATUS.md) distinguishes the recorded
+milestones from the open work and links the
+[latest allocation/retype evidence](docs/launch-prep/xnu-phase53-allocation-retype.md).
 
-Requirements: Apple Silicon macOS, Xcode Command Line Tools, Python 3.9+, Git,
-and Homebrew packages `llvm`, `lld`, `rustup`, and GNU `make`.
-
-```sh
-brew install llvm lld rustup make
-python3 setup/bootstrap.py
-source setup/activate.sh
-rustup toolchain install 1.98.1 --profile minimal
-rustup target add --toolchain 1.98.1 aarch64-unknown-none-softfloat
-python -m unittest discover -s tests -v
-make -C "$M1N1_CHECKOUT" -j4
-make -C "$VEL2_CHECKOUT" -j4
-```
-
-`setup/bootstrap.py` clones two independent pinned m1n1 revisions under the
-ignored `local/` directory, verifies patch hashes, applies each patch only to its
-matching base, initializes submodules, and creates locked Python environments.
-It refuses to overwrite a checkout with unexpected changes.
-
-The two patch tracks are intentionally separate:
-
-- `0001-validate-guest-setup-and-report-stages.patch` adds conservative loader
-  validation and stage reporting to the original loader track.
-- `0002-experimental-virtual-el2.patch` adds the experimental virtual-EL2 runtime,
-  bounded trace/filter firmware paths, and proxy API to the research track.
-
-The checked-in test suite is host-only unless an individual command explicitly
-documents an `--execute` gate. A passing build or synthetic replay is not evidence
-that a target is safe to run or that Tahoe boots.
+Hardware findings are documented here, but raw captures and proprietary inputs
+are retained outside Git. A fresh clone can run synthetic host checks; it cannot
+independently replay every hardware finding. Read the
+[evidence model](docs/SAFETY.md) when assessing claims.
 
 ## Repository map
 
-- [`patches/m1n1/`](patches/m1n1/) — pinned patches against exact upstream
-  revisions in `upstream*.lock`.
-- [`scripts/`](scripts/) — offline decoders/replayers plus explicitly gated
-  hardware runners.
-- [`tests/`](tests/) — unit and synthetic end-to-end regression coverage.
-- [`docs/`](docs/) — curated architecture, evidence, and experiment notes.
-- [`setup/`](setup/) — reproducible checkout and Python environment setup.
+| Path | Contents |
+| --- | --- |
+| [scripts/](scripts/README.md) | Host analysis, evidence tools, and experimental runners |
+| [tests/](tests/README.md) | Synthetic regression coverage and source-dependent checks |
+| [docs/](docs/README.md) | Current orientation plus historical evidence and design notes |
+| [setup/](setup/README.md) | Source checkout and Python environment setup |
+| [patches/m1n1/](patches/m1n1/) | Two separate patch tracks, each pinned by its own lock file |
+| [upstream.lock](upstream.lock) | Loader-validation baseline and patch hashes |
+| [upstream-vel2.lock](upstream-vel2.lock) | Experimental runtime baseline and patch hashes |
 
-Start with the [documentation index](docs/README.md), then read the
-[safety/evidence rules](docs/SAFETY.md) before considering hardware work.
+The patches apply to **different upstream revisions**, not sequentially to one
+tree. Setup creates separate local checkouts. Building or passing tests does not
+establish hardware readiness.
 
 ## Inputs and provenance
 

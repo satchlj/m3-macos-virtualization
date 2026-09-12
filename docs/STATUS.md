@@ -4,12 +4,18 @@ The active frontier is Phase 5.3: SPTM dynamic-memory services under XNU. The
 project is past early XNU entry and platform diagnostics, but is not at a macOS
 boot or GPU bring-up milestone.
 
+[Repository home](../README.md) · [Overview](OVERVIEW.md) · [Documentation index](README.md)
+
+This is the latest **recorded** status in this snapshot, not a live hardware
+status feed. “Observed” is limited to the pinned experiments described below.
+Earlier plans and attempt notes retain their historical context.
+
 ## Phase 5 roadmap
 
 | Area | Status | Evidence boundary |
 | --- | --- | --- |
-| 5.1 Early entry and static metadata | Complete | XNU entry, Mach-O/BootKC metadata, AuxKC absence encoding, and relocation dependencies were crossed on hardware. |
-| 5.2 Console, diagnostics, and timers | Complete for bring-up | Early console routing, physical timer handling, panic-log preservation, and required early mappings were exercised. These are compatibility mechanisms, not general peripheral support. |
+| 5.1 Early entry and static metadata | Bounded milestone observed | XNU entry, Mach-O/BootKC metadata, AuxKC absence encoding, and relocation dependencies were crossed on hardware. |
+| 5.2 Console, diagnostics, and timers | Bounded bring-up coverage | Early console routing, physical timer handling, panic-log preservation, and required early mappings were exercised. These are compatibility mechanisms, not general peripheral support. |
 | 5.3 SPTM dynamic-memory services | Active | Allocation, page selection, selector-1 guarded entry, exact return, and authoritative `XNU_DEFAULT` to `TXM_DEFAULT` and `XNU_PAGE_TABLE` frame-record transitions were observed on hardware. Runtime Stage-1 mutation remains open. |
 | 5.4 Core peripherals | Upcoming | AIC, PMGR, and DART bring-up have not been established. |
 
@@ -54,3 +60,19 @@ corresponding Stage-1 descriptor write or linkage into a live hierarchy. See
 
 Hardware evidence is retained outside Git. Small fixtures are synthetic or
 redacted unless a document explicitly says otherwise.
+
+## Follow the evidence
+
+| Recorded stage | Supporting notes |
+| --- | --- |
+| Initial virtual-EL2 smoke and SPTM self-configuration | [Smoke result](vel2-hardware-smoke.md) · [Self-configuration result](sptm-self-configuration-result.md) |
+| Guarded-memory experiments | [Stage 0 historical index](real-memory-stage0/README.md) |
+| TXM launch and early XNU execution | [Kernel/platform evidence index](launch-prep/README.md) |
+| Current allocation/retype milestone | [Attempts 103–104](launch-prep/xnu-phase53-allocation-retype.md) |
+
+The next unestablished milestone is a verified runtime Stage-1 descriptor change
+associated with the page-table retype. Later platform and GPU work should not be
+reported as completed on the basis of the existing frame-record transition.
+
+Documentation and code-organization tasks are tracked separately in the
+[maintenance review](CODE-REVIEW.md). They do not advance hardware milestones.

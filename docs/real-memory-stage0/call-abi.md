@@ -1,5 +1,10 @@
 # SPTM guarded-call ABI — dispatch map (2026-09-10, sub-step 1)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 > **Correction (2026-09-10, verified disassembly):** the C service entry is `0xe8d4c`, not `0xe8d8c` (that is 0x40 bytes inside it); the non-mutation stop PC is `0xa4ac0` (the `b →0xe8d4c` in T0). Also `GXF_ENTER_EL1` is reprogrammed during boot (`0xb0b98` init → `0xa4524` dispatcher). See [first-contact-build-spec.md](first-contact-build-spec.md).
 
 

@@ -1,5 +1,9 @@
 # What the observation-only SPRR run showed
 
+> Historical research context. Status and proposed next steps below describe the
+> original investigation. See [current project status](STATUS.md) for later
+> results and remaining milestones.
+
 Attempt `sprr-observation-v1/d5dc52d5` (USB host worktree, commit daaeb84,
 16,777,216-step budget, `observe_sprr` + `stop_on_vector_entry`) reproduced
 the two live TTBR switches, then continued past the point where every earlier

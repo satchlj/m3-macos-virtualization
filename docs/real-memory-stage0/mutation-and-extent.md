@@ -1,5 +1,10 @@
 # Stage-0 — what the monitor mutates, and how it learns physical extent
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Read-only offline analysis of `local/payload/sptm.macho` against the attempt-9
 bundle (`artifacts/runs/observe-sprr/attempt-9`). No device, probe, or pipeline
 was touched. This answers the two Stage-0 open questions from

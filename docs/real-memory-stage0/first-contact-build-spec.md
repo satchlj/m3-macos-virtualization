@@ -1,5 +1,10 @@
 # First-contact genter driver — finalized build spec (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Supersedes the address assumptions in [first-contact-spec.md](first-contact-spec.md)
 and [call-abi.md](call-abi.md) with the reconciled disassembly (verified against the
 SHA-matched `local/payload/sptm.macho`). This is the buildable spec for the R2

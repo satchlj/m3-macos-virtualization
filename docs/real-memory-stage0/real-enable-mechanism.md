@@ -1,5 +1,10 @@
 # Real SPRR/GXF enable — mechanism resolution (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 How `--real-guarded` must apply the guest's SPRR/GXF/guarded state, resolved by
 three safe hardware iterations plus offline mapping of the early (pre-MMU) setup.
 No hardware was harmed; each attempt exited cleanly.

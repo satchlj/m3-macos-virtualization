@@ -1,5 +1,10 @@
 # Stage-0 region map — monitor context pointer table (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Stage-0 prerequisite 2 of the real-memory phase
 ([real-memory-phase-plan.md](../real-memory-phase-plan.md)): enumerate the SPTM
 monitor's context pointer table (the structure regions it initializes) and

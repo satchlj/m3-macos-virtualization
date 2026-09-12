@@ -1,5 +1,10 @@
 # Attempt 58 XNU parser abort
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 58 reached XNU native execution after the bounded AHCR diagnostic NOP
 and PMCR1 bank collapse. It then panicked with an early-stack diagnostic at
 runtime PC `0xfffffe002bfb4d94`. The instruction is `ldr w8, [x24]` in the

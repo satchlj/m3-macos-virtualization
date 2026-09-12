@@ -1,5 +1,9 @@
 # First proxy findings — 2026-09-09
 
+> Historical research context. Status and proposed next steps below describe the
+> original investigation. See [current project status](STATUS.md) for later
+> results and remaining milestones.
+
 ## Running build
 
 The installed raw image reached proxy mode on the M3/J613. USB transport handshake and proxy NOP succeeded. After accounting for AArch64 RELATIVE relocations, the running `.init` (2,468 bytes), `.text` (327,680 bytes), and `.rodata` (73,504 bytes) match the local `m1n1-raw.elf` exactly. This checks code/read-only build identity, not mutable state. The Mach-O ELF uses a different layout and is not the comparison target for the installed raw boot object.

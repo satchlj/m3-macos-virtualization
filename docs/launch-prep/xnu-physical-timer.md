@@ -1,5 +1,10 @@
 # XNU early physical timer control
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 64 (`27f6291d-4f53-4f87-bac9-82526e87735c`) reached runtime
 `0xfffffe002bf923b0`, linked `0xfffffe000bf923b0`, instruction `0xd51be228`
 (`msr CNTP_CTL_EL0, x8`). Syndrome `0x6232f904` describes this trapped

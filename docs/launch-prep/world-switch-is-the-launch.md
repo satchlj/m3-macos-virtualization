@@ -1,5 +1,10 @@
 # Correction: the first world-switch eret enters TXM (2026-09-11)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Hardware attempts 40 and 41 supersede the previous conclusion in this file.
 **SPTM reaches and enters TXM.** At that checkpoint, XNU execution and full SPTM
 initialization were not established. Attempts 48–49 later proved the distinct

@@ -1,5 +1,10 @@
 # XNU pmap bootstrap permission window
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 67b reached a terminal WFE in early SP1 exception handling. Its original
 cause was recovered from the retained debugger frame and panic varargs, not
 from the WFE itself. The reported reason is `Invalid kernel stack pointer

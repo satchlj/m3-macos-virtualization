@@ -1,5 +1,10 @@
 # Private SOC diagnostic trace buffer
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 66 (`1755ffa6-2b38-4d70-9db0-7716b2838a26`) stopped at runtime
 `0xfffffe002b72118c`, linked `0xfffffe000b72118c`, instruction `0xb9000169`
 (`str w9, [x11]`). The captured value is 2, with syndrome `0x93890046` and

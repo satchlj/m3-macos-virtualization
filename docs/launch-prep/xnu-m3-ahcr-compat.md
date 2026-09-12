@@ -1,5 +1,10 @@
 # XNU M3 AHCR diagnostic compatibility
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 The opt-in `--xnu-m3-nop-ahcr-compat` reproduces one bounded upstream m1n1
 loader behavior. It replaces the pinned kernelcache's `mrs x10, AHCR_EL2` at
 linked `0xfffffe000b8178d4` and `msr AHCR_EL2, x10` at linked

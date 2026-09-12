@@ -1,5 +1,10 @@
 # attempt-23 — first contact: a real guarded service call into SPTM (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 **Milestone.** With `--first-contact` (patch the normal-world WFE idle at 0xf8b88 to
 genter #0) plus the GL2 shadow and A/B/C backing, SPTM completed full init, reached
 idle, and the injected `genter #0` made a real guarded service call:

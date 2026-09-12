@@ -1,5 +1,10 @@
 # VBAR_GL1 redirect audit (attempts 18–42)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 ## Finding
 
 > Hardware result: attempts 45–49 applied both writes through `VBAR_GL12`,

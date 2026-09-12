@@ -1,5 +1,10 @@
 # Safe real-DRAM range — Stage 0 (real-memory phase)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Offline analysis only. This determines a real host-physical DRAM range we could hand
 the SPTM monitor in stage R1, plus the reserved regions it must not overlap. No
 hardware was touched to produce this; all numbers are read from the attempt-9 bundle,

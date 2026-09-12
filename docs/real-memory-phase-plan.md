@@ -1,5 +1,9 @@
 # Real-memory phase — plan (drafted 2026-09-10)
 
+> Historical research context. Status and proposed next steps below describe the
+> original investigation. See [current project status](STATUS.md) for later
+> results and remaining milestones.
+
 > **R2 status 2026-09-10 (first contact done):** Real guarded execution works end to
 > end. SPTM completes full init to idle with the `TPIDR_GL2` GL2-bank shadow + A/B/C
 > backing (attempt-21), and a real guarded **service call** into the dispatcher

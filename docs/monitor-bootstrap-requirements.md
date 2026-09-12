@@ -1,5 +1,9 @@
 # Monitor bootstrap investigation — 2026-09-09
 
+> Historical research context. Status and proposed next steps below describe the
+> original investigation. See [current project status](STATUS.md) for later
+> results and remaining milestones.
+
 ## Result and current blocker
 
 The next missing component is an SPTM-aware guest boot harness, including monitor execution-level virtualization. The public m1n1 `hv-sprr` branch provides useful SPRR/GXF emulation but does not by itself provide the SPTM/TXM loader or the EL2 monitor execution environment identified in the public reference loader. No target writes, replacement m1n1 installation, or guest launch occurred during this investigation. The target remains in daily macOS.

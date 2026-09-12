@@ -1,5 +1,10 @@
 # Multi-call reversibility — safety plan for the first mutating guarded call (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 `--first-contact` was non-mutating (halted at 0xa4ac0 before the service). The
 multi-call driver (`--guarded-call-selectors`) lets the C service RUN, so it is the
 first time a real SPTM service executes under the probe. This plans the safety.

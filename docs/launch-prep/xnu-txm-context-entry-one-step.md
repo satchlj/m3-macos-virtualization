@@ -1,5 +1,10 @@
 # Exact TXM context-entry one-step gate
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Attempt 73 stopped at the rewritten SPTM ERET callback PC
 `0xfffffe00070a410c` (the pinned original ERET is at `...4108`, word
 `0xd69f03e0`). The guarded bank named runtime target `0xfffffe001703103c`

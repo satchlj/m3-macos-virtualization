@@ -1,5 +1,10 @@
 # XNU PMCR1 EL12 bank collapse
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 Under `--xnu-run`, the probe verifies a pinned adjacent instruction pair:
 
 * linked `0xfffffe000b823a14`: `msr PMCR1_EL1, x17`

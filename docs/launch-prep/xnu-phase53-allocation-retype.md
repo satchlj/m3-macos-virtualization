@@ -1,5 +1,10 @@
 # XNU Phase 5.3 allocation and SPTM retype evidence
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 ## Verified result
 
 Attempt 103 (`b3ebd725-42d8-474a-b5ec-b191c8326046`) completed a bounded

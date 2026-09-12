@@ -1,5 +1,10 @@
 # First XNU peripheral mapping
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 After the absent-AuxKC fix, attempt 59b stopped on the first observed dockchannel
 UART access: runtime PC `0xfffffe002b6b6fac`, instruction `ldr w22, [x0]`,
 ESR `0x93960006`, FAR `0xfffffe003a010000`. The saved guest page tables map

@@ -1,5 +1,10 @@
 # genter driver — design (2026-09-10, sub-step 3)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 How to issue a real guarded call so SPTM services it, given the call ABI
 ([call-abi.md](call-abi.md)), the wake path ([wake-path.md](wake-path.md)), and
 the finalized SPRR model ([sprr-permission-model.md](sprr-permission-model.md)).

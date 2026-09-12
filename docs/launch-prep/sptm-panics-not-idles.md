@@ -1,5 +1,10 @@
 # CORRECTION: 0xf8b88 is SPTM's panic halt, not a WFE idle (2026-09-10)
 
+[Directory index](README.md) · [Current project status](../STATUS.md)
+
+> Research record: results and proposed steps below have the scope of this note;
+> they are not a current setup guide.
+
 A disassembly trace overturns a load-bearing prior assumption.
 
 ## The finding
