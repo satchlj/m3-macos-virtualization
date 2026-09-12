@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'scripts'))
 from run_manifest import RunCapture, atomic_json, git_identity, append_event
 import sptm_entry_probe as probe
+from sptm_probe import runtime as probe_runtime
 from experiment_store import Catalog
 
 
@@ -90,7 +91,7 @@ class ManifestTests(unittest.TestCase):
                 '--report', str(self.root/'report.json')]
         for error in (None, ValueError('invalid payload'), KeyboardInterrupt()):
             with self.subTest(error=error), patch.object(sys, 'argv', argv), \
-                 patch.object(probe, 'plan', side_effect=error, return_value={'images': {}}):
+                 patch.object(probe_runtime, 'plan', side_effect=error, return_value={'images': {}}):
                 previous = signal.getsignal(signal.SIGTERM)
                 if error:
                     with self.assertRaises(type(error)):
@@ -136,7 +137,7 @@ class ManifestTests(unittest.TestCase):
                 '--report', str(self.root/'report.json')]
         def terminate(*args):
             signal.raise_signal(signal.SIGTERM)
-        with patch.object(sys, 'argv', argv), patch.object(probe, 'plan', side_effect=terminate):
+        with patch.object(sys, 'argv', argv), patch.object(probe_runtime, 'plan', side_effect=terminate):
             with self.assertRaises(KeyboardInterrupt):
                 probe.main()
         manifest = json.loads(next((self.root/'report.json.runs').glob('*/manifest.json')).read_text())

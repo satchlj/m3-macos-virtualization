@@ -17,7 +17,7 @@ Sources:
 - `proxyclient/tools/chainload.py`: RAM chainload sequence adapted in `scripts/chainload_preserve_boot.py`.
 - `proxyclient/tools/reboot.py`: reset-panic-counter/reboot sequence used in `scripts/clean_reboot_target.py`.
 - `src/hv_sprr.c` and `src/memory.h`: permission tables and leaf index mapping adapted in `scripts/sprr_permissions.py`.
-- `proxyclient/m1n1/hv/__init__.py`: upstream loader and hypervisor behavior referenced by the patches and probe; the AHCR compatibility behavior originates in commit `874ff59ea1297b8bdc438c6ad425efdcf4224dd3`.
+- `proxyclient/m1n1/hv/__init__.py`: upstream loader and hypervisor behavior referenced by the patches and the `scripts/sptm_probe/` implementation; the AHCR compatibility behavior originates in commit `874ff59ea1297b8bdc438c6ad425efdcf4224dd3`.
 
 The patch series contains upstream context and local modifications. It does not
 replace m1n1's upstream notices. See upstream Git history for individual authors.

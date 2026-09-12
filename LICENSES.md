@@ -14,7 +14,7 @@ external material. Existing copyright notices must be preserved.
 | Material | Applicable license | Required notice |
 | --- | --- | --- |
 | m1n1 patch context and adaptations in `patches/m1n1/` | MIT | [Asahi m1n1 MIT](LICENSES/Asahi-m1n1-MIT.txt) |
-| Upstream portions of `scripts/chainload_preserve_boot.py`, `scripts/clean_reboot_target.py`, `scripts/sprr_permissions.py`, and m1n1-derived behavior in `scripts/sptm_entry_probe.py` | MIT | [Asahi m1n1 MIT](LICENSES/Asahi-m1n1-MIT.txt) and [credits](THIRD_PARTY_NOTICES.md) |
+| Upstream portions of `scripts/chainload_preserve_boot.py`, `scripts/clean_reboot_target.py`, `scripts/sprr_permissions.py`, and m1n1-derived behavior in `scripts/sptm_probe/` (exported through `scripts/sptm_entry_probe.py`) | MIT | [Asahi m1n1 MIT](LICENSES/Asahi-m1n1-MIT.txt) and [credits](THIRD_PARTY_NOTICES.md) |
 | `scripts/sptm_layout.py`, adapted from the pinned QEMU SPTM loader | GPL-2.0-or-later | [GPL text](LICENSES/GPL-2.0-or-later.txt), [upstream license policy](LICENSES/QEMU-LICENSE.txt), and [credits](THIRD_PARTY_NOTICES.md) |
 | Reproduced license documents | Their own stated terms | Preserve verbatim |
 

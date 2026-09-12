@@ -2,11 +2,13 @@
 """Replay debug traps through the real probe callback and an in-memory transport.
 
 This does not execute guest instructions or emulate a CPU, TLB, USB, or an M3.
-It compiles the callback and encoding AST: main() and hardware setup/cleanup
-are never executed. Tests can supply synthetic RAM and guest register banks.
+It calls the shared callback with synthetic run bindings. Only small setup
+definitions are extracted as AST; main() and hardware setup/cleanup never run. Tests can supply synthetic RAM and guest register banks.
 """
 import argparse
 import ast
+from functools import partial
+from sptm_probe.callback import RunBindings, stopped
 from run_manifest import trace_count, append_event
 import gzip
 import hashlib
@@ -145,21 +147,18 @@ class CallbackReplay:
         self.wire = None
         self.fail_write = False
         self.fail_save = False
-        tree = ast.parse((REPO / 'scripts/sptm_entry_probe.py').read_text())
+        tree = ast.parse((REPO / 'scripts/sptm_probe/runtime.py').read_text())
+        constants_tree = ast.parse((REPO / 'scripts/sptm_probe/constants.py').read_text())
+        platform_tree = ast.parse((REPO / 'scripts/sptm_probe/platform.py').read_text())
         main = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run_probe')
-        callback = next(n for n in main.body if isinstance(n, ast.FunctionDef) and n.name == 'stopped')
-        dockchannel_match = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+        dockchannel_match = next(n for n in platform_tree.body if isinstance(n, ast.FunctionDef)
                                  and n.name == 'match_xnu_dockchannel_uart')
-        panic_match = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+        panic_match = next(n for n in platform_tree.body if isinstance(n, ast.FunctionDef)
                            and n.name == 'match_xnu_panic_carveout')
-        socd_match = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+        socd_match = next(n for n in platform_tree.body if isinstance(n, ast.FunctionDef)
                           and n.name == 'match_xnu_socd_trace')
         guard = next(n for n in main.body if isinstance(n, ast.FunctionDef) and n.name == 'pause_guard')
         gxf_report = next(n for n in main.body if isinstance(n, ast.FunctionDef) and n.name == 'gxf_report')
-        # Preserve the callback intact, including nonlocals, catches, and finally.
-        factory = ast.parse('def bind(entered, shadow_hcr, shadow_sctlr, shadow_sprr_config, real_sprr_on, guarded_vbar, monitor_mmu_validated):\n    pass').body[0]
-        factory.body = [dockchannel_match, panic_match, socd_match, gxf_report, guard, callback,
-                        ast.Return(value=ast.Name(id='stopped', ctx=ast.Load()))]
         namespace = dict(vars(sysreg), batch=None, trace_count=trace_count, append_event=append_event, START=START, EXC=EXC, EXC_RET=EXC_RET, ExcInfo=ExcInfo,
                          UnsupportedGuestDebug=UnsupportedGuestDebug, HV=HV,
                          PpermWindowLimit=type('PpermWindowLimit',(Exception,),{}),
@@ -224,7 +223,7 @@ class CallbackReplay:
         namespace['struct'] = struct
         namespace['hashlib'] = __import__('hashlib')
         # Module-level register lists and the probe's own shadow/rewrite tables: one source of truth.
-        assignments = [n for n in tree.body if isinstance(n, ast.Assign)
+        assignments = [n for n in constants_tree.body if isinstance(n, ast.Assign)
                        and any(isinstance(t, ast.Name) and (t.id in ('SPRR_PERMISSION_REGISTERS', 'APPLE_OBSERVED_REGISTERS', 'TXM_WORLD_RETURN_LINKED') or t.id.startswith('FC_')) for t in n.targets)]
         assignments += [n for n in main.body if isinstance(n, ast.Assign)
                        and any(isinstance(t, ast.Name) and t.id in ('translation_banks', 'apple_cntvoff', 'permission_shadow', 'apple_shadow', 'extra_regs', 'real_native', 'real_redirect', 'gxf_banks', 'gxf_state', 'el2_shadow') for t in n.targets)]
@@ -234,17 +233,19 @@ class CallbackReplay:
         rewrite = next(n for n in main.body if isinstance(n, ast.FunctionDef) and n.name == 'patch_probe_code')
         # Its local relative import needs the already loaded module, without HV.__init__.
         sys.modules.setdefault('m1n1.hv.vel2', vel2)
-        exec(compile(ast.Module(body=assignments+[rewrite], type_ignores=[]),
-                     str(REPO/'scripts/sptm_entry_probe.py'), 'exec'), namespace)
+        exec(compile(ast.Module(body=assignments+[rewrite, dockchannel_match, panic_match, socd_match, gxf_report, guard], type_ignores=[]),
+                     str(REPO/'scripts/sptm_probe/runtime.py'), 'exec'), namespace)
         namespace['tpidr_gl2_register'] = sysreg.sysreg_fwd['TPIDR_GL2']
         namespace['tpidr_gl2_shadow_tag_base'] = (
             0x8000 | (namespace['extra_regs'].index(
                 namespace['tpidr_gl2_register']) << 6))
         namespace['tpidr_gl2_fast_shadow'] = None
         self.namespace = namespace
-        exec(compile(ast.fix_missing_locations(ast.Module(body=[factory], type_ignores=[])),
-                     str(REPO / 'scripts/sptm_entry_probe.py'), 'exec'), namespace)
-        self.callback = namespace['bind'](entered, 0, 0, 0, False, 0, False)
+        namespace.update(entered=entered, shadow_hcr=0, shadow_sctlr=0,
+                         shadow_sprr_config=0, real_sprr_on=False, guarded_vbar=0,
+                         monitor_mmu_validated=False)
+        self.bindings = RunBindings(namespace)
+        self.callback = partial(stopped, self.bindings)
 
     def cache_op(self, address, size):
         self.memory.check(address, size)

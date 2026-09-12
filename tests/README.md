@@ -49,7 +49,7 @@ There are some broader groups:
 | Manifests, archives, catalog, transfer/import | `test_run_manifest.py`, `test_event_archive.py`, `test_experiment_store.py`, `test_fetch_pipeline_archive.py`, `test_import_probe_pipeline.py`, `test_ingest_probe_bundle.py` |
 | Payload/layout and translation | `test_guest_payload.py`, `test_guest_preflight.py`, `test_sptm_layout.py`, `test_guest_pt.py`, `test_replay_table_snapshot.py` |
 | Upstream loader and C runtime | `test_loader_patch.py`, `test_vel2.py`, `test_step_batch.py`, `test_step_filter.py` |
-| Probe policy and simulated callbacks | `test_probe_controls.py`, `test_probe_guards.py`, `test_probe_exceptions.py`, `test_guest_debug.py`, `test_live_ttbr.py` |
+| Probe policy and simulated callbacks | `test_probe_controls.py`, the focused `test_probe_*` modules below, `test_probe_guards.py`, `test_probe_exceptions.py`, `test_guest_debug.py`, `test_live_ttbr.py` |
 | Reports and trace analysis | `test_trace_*.py`, `test_classify_xnu_map_progress.py`, `test_xnu_console.py` |
 | Pipeline, receipts, and cleanup policy | `test_probe_pipeline.py`, `test_fresh_gate_receipt.py`, `test_guarded_pause.py`, `test_free_run_watchdog.py` |
 
@@ -59,7 +59,36 @@ For a focused run, use discovery's pattern option:
 python3 -m unittest discover -s tests -p 'test_run_manifest.py' -v
 ```
 
-The large `test_probe_controls.py` also covers experimental features. Its size
-and reliance on callback extraction are documented in the
-[maintenance review](../docs/CODE-REVIEW.md). A green suite is not a CPU model,
-a test of production safety, or evidence of a macOS boot.
+## Focused probe tests
+
+The former large `test_probe_controls.py` is split by concern. Shared synthetic
+input builders live in [probe_control_support.py](probe_control_support.py),
+which contains no test cases. The original 124 test methods remain discoverable
+exactly once across these modules:
+
+| File | Concern |
+| --- | --- |
+| [test_probe_controls.py](test_probe_controls.py) | Translation/control policy and budgets |
+| [test_probe_adapters.py](test_probe_adapters.py) | Adapter protocols and failure cleanup |
+| [test_probe_platform.py](test_probe_platform.py) | Pure platform contracts and compatibility helpers |
+| [test_probe_handoff_controls.py](test_probe_handoff_controls.py) | Handoff boundaries and returned contexts |
+| [test_probe_txm_entry.py](test_probe_txm_entry.py) | Context-entry validation |
+| [test_probe_txm_trace.py](test_probe_txm_trace.py) | TXM trace results |
+| [test_probe_allocation_trace.py](test_probe_allocation_trace.py) | End-to-end synthetic allocation/fast-path scenario |
+| [test_probe_retype_survey.py](test_probe_retype_survey.py) | Retype survey outcomes and bounds |
+| [test_probe_native_controls.py](test_probe_native_controls.py) | Native platform event contracts |
+| [test_probe_permission_windows.py](test_probe_permission_windows.py) | Temporary permission-window state and cleanup |
+| [test_probe_observation.py](test_probe_observation.py) | Observation/virtual-world state |
+
+A focused `-p 'test_probe_controls.py'` run now covers only translation/control
+policy. Use full discovery for all probe coverage. Every listed module also runs
+independently with discovery's `-p` option.
+
+[refactor_audit.py](refactor_audit.py) is a separate, one-time source-structure
+comparison against the pre-refactor Git revision; it is not automatically run by
+unit-test discovery. Its scope is documented in the
+[package guide](../scripts/sptm_probe/README.md).
+
+A green suite is not a CPU model, a test of production safety, or evidence of a
+macOS boot. The current refactor's configured run reports 491 tests and 5 expected
+private-evidence skips; the unconfigured run reports 483 tests and 180 skips.

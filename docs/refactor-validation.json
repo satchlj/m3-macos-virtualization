@@ -1,0 +1,31 @@
+{
+  "baseline_commit": "2cab764",
+  "callback_ast_sha256": "7dcb529b17183e2950eb6a0dedf0793ab121d231cf25acb2c800285905b6ae2b",
+  "reconstructed_callback_ast_sha256": "7dcb529b17183e2950eb6a0dedf0793ab121d231cf25acb2c800285905b6ae2b",
+  "unchanged_top_level_definitions": 187,
+  "extracted_branch_bodies": 22,
+  "unchanged_test_methods": 124,
+  "unchanged_shared_fixture_methods": 11,
+  "reviewed": "2026-09-11",
+  "python": "3.14.7",
+  "configured_suite": {
+    "tests": 491,
+    "skipped": 5,
+    "failures": 0,
+    "errors": 0
+  },
+  "unconfigured_suite": {
+    "tests": 483,
+    "skipped": 180,
+    "failures": 0,
+    "errors": 0
+  },
+  "independent_test_modules": 11,
+  "test_discovery_preserved": true,
+  "cli_help_identical": true,
+  "cli_help_sha256": "3814dff1b01e4c08c3fab48472e6bed7d675c6a6b418a824bfd435b6f1def3b9",
+  "structural_audit_normal_optimized_identical": true,
+  "hardware_executed": false,
+  "run_lifecycle_structure_preserved": true,
+  "cli_structure_preserved_with_repository_root_adjustment": true
+}

@@ -81,7 +81,7 @@ sequence. Review [the evidence and safety model](../docs/SAFETY.md) separately.
 | [probe_diagnostics.py](probe_diagnostics.py) | Read bounded printable guest data after a completed probe; never resume a guest. |
 | [run_fresh_gate.py](run_fresh_gate.py) | Run the nonce-bound fresh gate and issue an authenticated one-use receipt. |
 | [run_probe_pipeline.py](run_probe_pipeline.py) | Run one probe, collect diagnostics, and publish a fast compressed transfer bundle. |
-| [sptm_entry_probe.py](sptm_entry_probe.py) | Bounded SPTM instruction trace in isolated guest RAM; not a macOS boot loader. |
+| [sptm_entry_probe.py](sptm_entry_probe.py) | Stable command/import facade for the [probe implementation](sptm_probe/README.md). |
 | [vel2_smoke.py](vel2_smoke.py) | Compile a synthetic vEL2 smoke test; --execute explicitly enables RAM-only target work. |
 | [step_batch_smoke.py](step_batch_smoke.py) | Exercise native batching with 64 known additions; hardware requires --execute. |
 | [free_run_watchdog_smoke.py](free_run_watchdog_smoke.py) | RAM-only native busy-loop; prove the timer kick exits with a live proxy. |
@@ -97,3 +97,28 @@ example. See [artifact storage](../docs/artifact-storage.md) and
 
 The layout module has a GPL-2.0-or-later exception to the repository's MIT default.
 Read [LICENSES.md](../LICENSES.md) before redistributing combined tools.
+
+## Probe implementation modules
+
+See the [package guide](sptm_probe/README.md) for responsibility boundaries and
+state lifetimes. These are internal modules, not additional CLI entry points.
+
+| Module | Purpose |
+| --- | --- |
+| [sptm_probe/__init__.py](sptm_probe/__init__.py) | Internal implementation of the stable sptm_entry_probe entry point. |
+| [sptm_probe/adapters.py](sptm_probe/adapters.py) | Firmware adapter interfaces and teardown auditing. |
+| [sptm_probe/callback.py](sptm_probe/callback.py) | Callback lifecycle and ordered dispatch, shared by live code and host replay. |
+| [sptm_probe/cli.py](sptm_probe/cli.py) | Bounded SPTM instruction trace in isolated guest RAM; not a macOS boot loader. |
+| [sptm_probe/constants.py](sptm_probe/constants.py) | Pinned register names and source/byte contracts; not portable defaults. |
+| [sptm_probe/events/__init__.py](sptm_probe/events/__init__.py) | Ordered event-handler implementation; not standalone commands. |
+| [sptm_probe/events/allocation.py](sptm_probe/events/allocation.py) | Allocation event handlers extracted from the original probe callback. |
+| [sptm_probe/events/exceptions.py](sptm_probe/events/exceptions.py) | Exceptions event handlers extracted from the original probe callback. |
+| [sptm_probe/events/handoff.py](sptm_probe/events/handoff.py) | Handoff event handlers extracted from the original probe callback. |
+| [sptm_probe/events/native_platform.py](sptm_probe/events/native_platform.py) | Native platform event handlers extracted from the original probe callback. |
+| [sptm_probe/events/retype.py](sptm_probe/events/retype.py) | Retype event handlers extracted from the original probe callback. |
+| [sptm_probe/events/txm_entry.py](sptm_probe/events/txm_entry.py) | Txm entry event handlers extracted from the original probe callback. |
+| [sptm_probe/events/txm_entry_setup.py](sptm_probe/events/txm_entry_setup.py) | Txm entry setup event handlers extracted from the original probe callback. |
+| [sptm_probe/events/txm_step.py](sptm_probe/events/txm_step.py) | Txm step event handlers extracted from the original probe callback. |
+| [sptm_probe/events/txm_trace.py](sptm_probe/events/txm_trace.py) | Txm trace event handlers extracted from the original probe callback. |
+| [sptm_probe/platform.py](sptm_probe/platform.py) | Existing platform contracts, compatibility transforms, and restore helpers. |
+| [sptm_probe/runtime.py](sptm_probe/runtime.py) | Existing run setup, source loading, execution lifecycle, and cleanup. |

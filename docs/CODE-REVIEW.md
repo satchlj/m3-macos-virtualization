@@ -2,90 +2,92 @@
 
 [Repository home](../README.md) · [Script map](../scripts/README.md) · [Contributing](../CONTRIBUTING.md)
 
-Review date: 2026-09-11. Scope: the public snapshot, its entry points, module
-boundaries, tests, and documentation. This is not a comprehensive correctness or
-security audit. The documentation cleanup does not change the research runtime.
+Updated 2026-09-11 after the module refactor. Scope: source organization, host
+regression coverage, and documentation. This is not a comprehensive correctness
+or security audit, and no new hardware result is claimed.
 
-## Assessment
+## Current organization
 
-The repository is usable for research review, but the experimental runtime is
-not yet organized like a reusable library. Small host utilities have clearer
-boundaries than the central probe. Readers should start with manifests, archive
-handling, and pure analysis modules, then consult the probe only for a specific
-research question.
+The central probe now has a stable facade and a focused implementation package.
+The [package guide](../scripts/sptm_probe/README.md) explains its modules, state
+lifetimes, and validation. Existing commands and helper imports remain available
+through `scripts/sptm_entry_probe.py`.
 
-| Area | Assessment | Consequence |
+| Area | Before this refactor | Current structure |
 | --- | --- | --- |
-| Independent host modules | Generally small and have module docstrings | Easier to inspect and test in isolation |
-| `sptm_entry_probe.py` | About 6,300 lines; large setup, callback, and cleanup sections | High review cost and risk when mixing unrelated changes |
-| `test_probe_controls.py` | About 3,300 lines | Test intent is harder to find despite substantial coverage |
-| Callback replay | Extracts definitions/callbacks from source ASTs | Keeps tests away from hardware setup, but couples tests to source structure |
-| Python layout | Standalone scripts with sibling imports and test `sys.path` setup | Run from the documented paths; this is not an installed Python package |
-| Formatting | Dense expressions and multiple statements per line occur in older code | A future formatting pass should be isolated from behavioral changes |
-| Defaults and historical tools | Some refer to private, attempt-specific artifacts | Their existence is not a fresh-clone example or a portable interface |
-| Patch tracks | Exact revisions and hashes distinguish two independent bases | Preserve patch bytes unless deliberately regenerating the corresponding lock |
+| Probe entry point | 6,326 lines | 20-line facade |
+| Probe implementation | Setup, constants, helpers, and callback in one file | 17 package modules, largest 822 lines |
+| Event callback | 4,573-line nested function | Ordered dispatcher and 22 extracted branch bodies grouped by concern |
+| Probe control tests | 3,295-line file | 124 original methods across 11 focused modules; shared fixture methods separated |
+| Callback replay | Reconstructed the callback from the large file's AST | Calls the same callback used by runtime; small setup-definition extraction remains |
 
-The GPL-derived layout module is an important architectural boundary. See
-[LICENSES.md](../LICENSES.md); splitting files or moving imports does not remove
-its licensing obligations.
+The large single-event dispatcher was split along complete branch boundaries.
+Its condition order, exception handling, and finalization sequence are retained.
+Run bindings and per-event scratch state are explicit. This makes the code easier
+to locate without mixing algorithm changes into a structural refactor.
 
-## Reading order for code review
+The GPL-derived layout module remains a licensing boundary. Moving code or
+changing an import path does not remove its obligations; see
+[LICENSES.md](../LICENSES.md).
 
-1. `run_manifest.py` and `trace_diff.py`: report identity, event streams, comparisons.
-2. `experiment_store.py` and the import tools: local evidence organization.
-3. Pure inspection and reporting modules, paired with their `test_*.py` files.
-4. `replay_debug_probe.py` and `tests/probe_fixtures.py`: the synthetic test boundary.
-5. The two patch tracks and central probe, using the relevant evidence note.
+## Reading order
 
-Links to every script are in the [script map](../scripts/README.md). The
-[test guide](../tests/README.md) explains external prerequisites and skips.
+1. [Overview](OVERVIEW.md) and [current status](STATUS.md) for the research scope.
+2. `run_manifest.py`, `trace_diff.py`, and the evidence import tools for host-side
+   data handling; find them in the [script map](../scripts/README.md).
+3. The [probe package guide](../scripts/sptm_probe/README.md), then `cli.py`,
+   `runtime.py`, and `callback.py` for responsibility boundaries.
+4. The event module for a specific concern, paired with the matching
+   [focused test module](../tests/README.md#focused-probe-tests).
 
-## Maintenance backlog
+## What still needs work
 
-These are outstanding engineering improvements, not completed research results.
-They are separate from the scientific milestones in [STATUS.md](STATUS.md).
+These are engineering tasks, separate from the hardware milestones in
+[STATUS.md](STATUS.md).
 
 | Priority | Work | Completion criterion |
 | --- | --- | --- |
-| First | Split the large test file by concern | Every existing test remains discoverable; coverage and skip reasons remain explicit |
-| First | Document input/output schemas of reusable host tools | Small synthetic examples round-trip, with required/optional fields and version behavior explained |
-| Next | Isolate independent reporting and configuration concerns from the central probe | Small reviewable changes preserve behavior and evidence contracts; avoid simultaneous runtime changes |
-| Next | Establish a consistent formatting baseline | Formatting-only changes are separately reviewed and the applicable checks still pass |
-| Next | Clarify supported Python/platform combinations | Automated checks exercise a declared matrix rather than implying one from a minimum version |
-| Later | Decide whether reusable host tools warrant a package | An explicit API and invocation model replace ad hoc path assumptions without breaking existing scripts |
+| First | Document reusable host tools' input/output schemas | Small synthetic examples and explicit required/optional fields and version behavior |
+| Next | Narrow and type the run-binding contracts | Preserve deferred dependency lookup, shared mutable state, and event isolation under the same regression coverage |
+| Next | Reduce remaining setup-AST extraction in replay | Tests still exercise production definitions without invoking hardware setup |
+| Next | Establish a consistent formatting baseline | A separately reviewed formatting-only change preserves behavior |
+| Next | Declare and test supported Python/platform combinations | A real test matrix replaces assumptions based on a minimum version |
+| Later | Decide whether independent host tools warrant a package | Explicit APIs and invocation rules replace ad hoc sibling imports without breaking commands |
 
-## Documentation work completed in this review
+`runtime.py` intentionally keeps setup and cleanup together. One long synthetic
+allocation scenario also remains a single test: preserving its end-to-end
+assertions was preferable to splitting its sequence merely to reduce line count.
+Older code still has dense expressions and some long lines. The refactor
+preserved those statements and their explanatory comments for reviewability.
 
-- A shorter landing page directs readers by purpose instead of requiring a
-  hardware setup before orientation.
-- Current status, historical evidence, and engineering debt have separate homes.
-- Stage 0's stale “current frontier” summary is replaced with historical context.
-- Directory indexes cover every research note and script.
-- Setup, test prerequisites, skipped coverage, licensing, and private-evidence
-  limitations are explicit.
-- `scripts/check_docs.py` checks local paths, Markdown reachability from the root
-  README, and script-index coverage without a network request. It does not check
-  external URLs, heading fragments, or command correctness.
+## Validation
 
-No broad code-formatting, module extraction, hardware execution, or new hardware
-result is part of this cleanup. Runtime tidiness remains a documented follow-up,
-not a claim that the large probe has been refactored.
+[Recorded results](refactor-validation.json), using Python 3.14.7:
 
-## Validation recorded for this cleanup
+- Configured host suite: **491 tests, 5 skips, no failures or errors**.
+- Unconfigured host suite: **483 tests, 180 skips, no failures or errors**.
+- All 11 split test modules also passed independently.
+- The full test inventory is unchanged after accounting for module/class moves.
+  All 124 moved test method bodies and 11 shared fixture methods have identical ASTs.
+- All 187 moved top-level definitions have identical ASTs. After reversing explicit
+  binding references and inlining extracted branches, the callback AST matches
+  the pre-refactor callback. Run lifecycle and CLI structure also match after
+  accounting for their explicit relocation changes. The [audit tool](../tests/refactor_audit.py) produces
+  the same results with normal Python and `python3 -O`.
+- The command-line help is byte-for-byte unchanged. Manifest finalization and
+  interruption tests still exercise the original command facade; their mocks
+  now target the layout dependency in its owning runtime module.
+- Pinned patch hashes are unchanged. No target was accessed.
 
-On 2026-09-11 with Python 3.14.7:
+The five configured skips require private historical traces, device trees, or a
+retained SPTM payload absent from the public clone. Structural checks support the
+refactor review; they do not establish CPU or hardware equivalence. Hardware
+findings in the historical notes retain their original scope.
 
-- Configured host suite: **491 tests, 5 skips, no failures**. The skips require
-  private historical traces, device trees, or a retained SPTM payload absent from
-  the public clone. The six documentation-checker tests are included.
-- Both external patched source trees used for the configured run matched the
-  commits and recorded source hashes in the repository's lock files.
-- Documentation checker: all **97 Markdown files** reachable from the root README,
-  local link paths valid against the source listing, and all **44 Python scripts**
-  included in the script map. External URLs and heading anchors were not checked.
-- `git diff --check` passed; existing runtime code and patch hashes were unchanged.
+## Documentation maintenance
 
-Before adding the checker, a fresh-clone-style run with neither upstream checkout
-variable set reported 477 tests and 180 skips, with no failures. This illustrates
-why the test guide distinguishes basic host checks from configured coverage;
-it is not the final suite count.
+The root README provides reading paths. `STATUS.md` is the current milestone
+summary; older notes retain historical context. The script and documentation
+indexes cover all included modules and Markdown pages. `scripts/check_docs.py`
+checks local paths, Markdown reachability, and script-index coverage. It does not
+check external URLs, heading fragments, or the correctness of example commands.
