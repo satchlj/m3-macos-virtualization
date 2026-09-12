@@ -16,6 +16,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = '2cab764'
+REFACTORED = '5460e9f'
 TEST_MODULES = (
     'test_probe_controls', 'test_probe_adapters', 'test_probe_platform',
     'test_probe_handoff_controls', 'test_probe_txm_entry', 'test_probe_txm_trace',
@@ -37,7 +38,10 @@ def baseline(path):
 
 
 def definitions(path):
-    return ast.parse(path.read_text()).body
+    relative = Path(path).resolve().relative_to(ROOT)
+    return ast.parse(subprocess.check_output(
+        ['git', 'show', REFACTORED + ':' + str(relative)], cwd=ROOT, text=True,
+    )).body
 
 
 def methods(classes):
@@ -73,7 +77,10 @@ def main():
                if isinstance(node, ast.FunctionDef) and node.name == 'stopped')
     package = ROOT / 'scripts/sptm_probe'
     handlers = {(path.stem, node.name): node
-                for path in (package / 'events').glob('*.py')
+                for name in ('allocation', 'exceptions', 'handoff', 'native_platform',
+                             'retype', 'txm_entry', 'txm_entry_setup', 'txm_step',
+                             'txm_trace')
+                for path in (package / 'events' / (name + '.py'),)
                 for node in definitions(path) if isinstance(node, ast.FunctionDef)}
     new = next(node for node in definitions(package / 'callback.py')
                if isinstance(node, ast.FunctionDef) and node.name == 'stopped')

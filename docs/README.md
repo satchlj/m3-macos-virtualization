@@ -7,7 +7,7 @@
 | Purpose | Suggested route |
 | --- | --- |
 | First visit | [Overview and glossary](OVERVIEW.md) → [Current status](STATUS.md) |
-| Evaluate the latest result | [Status](STATUS.md) → [Allocation/retype evidence](launch-prep/xnu-phase53-allocation-retype.md) → [Evidence labels](SAFETY.md) |
+| Evaluate the latest result | [Status](STATUS.md) → [Leaf-binding evidence](launch-prep/xnu-phase53-leaf-page-bind.md) → [Evidence labels](SAFETY.md) |
 | Explore or contribute code | [Script map](../scripts/README.md) → [Test guide](../tests/README.md) → [Maintenance review](CODE-REVIEW.md) |
 | Set up sources | [Setup guide](../setup/README.md) → [Test prerequisites](../tests/README.md) |
 | Follow earlier research | [Stage 0 index](real-memory-stage0/README.md) → [Kernel/platform index](launch-prep/README.md) |

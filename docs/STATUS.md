@@ -16,29 +16,23 @@ Earlier plans and attempt notes retain their historical context.
 | --- | --- | --- |
 | 5.1 Early entry and static metadata | Bounded milestone observed | XNU entry, Mach-O/BootKC metadata, AuxKC absence encoding, and relocation dependencies were crossed on hardware. |
 | 5.2 Console, diagnostics, and timers | Bounded bring-up coverage | Early console routing, physical timer handling, panic-log preservation, and required early mappings were exercised. These are compatibility mechanisms, not general peripheral support. |
-| 5.3 SPTM dynamic-memory services | Active | Allocation, page selection, selector-1 guarded entry, exact return, and authoritative `XNU_DEFAULT` to `TXM_DEFAULT` and `XNU_PAGE_TABLE` frame-record transitions were observed on hardware. Runtime Stage-1 mutation remains open. |
-| 5.4 Core peripherals | Upcoming | AIC, PMGR, and DART bring-up have not been established. |
+| 5.3 SPTM dynamic-memory services | Bounded objective complete | One allocation/ownership chain, selector-3 L3 table installation, and selector-2 leaf mutation were observed with exact gates. General SPTM compatibility remains unestablished. |
+| 5.4 Core peripherals | Active frontier | AIC initialization is next; PMGR and DART bring-up remain unestablished. |
 
 ## Latest verified milestone
 
-Attempt 104 completed a bounded survey of the pinned XNU `sptm_retype` wrapper
-on an M3/J613 and stopped on its fifth observed call:
+Attempt 119 (`def50c86-5500-41b0-8d3d-517fa3f142c7`) completed the bounded
+Phase 5.3 chain in 44.50 seconds. Root `0x10015060000` and VA
+`0xfffffe17ec00c000` independently selected L3 table PA `0x100187f0000` and
+slot `0x100187f0018`. The zero table changed only there, to descriptor
+`0x4600100187f4683`, mapping owned PA `0x100187f4000`. Selector-3 and selector-2
+services returned status zero; L2, ownership, FTE transition, authenticated
+return, cleanup, and proxy-health gates passed.
 
-- the target call requested `XNU_DEFAULT` (`0x0b`) to `XNU_PAGE_TABLE`
-  (`0x14`) with flags `3` for physical frame `0x100187f4000`;
-- selector-1 `genter`, native `gexit`, the post-service helper, authenticated
-  wrapper return, and caller return all passed source/live-byte and translation
-  gates;
-- the authoritative record at `0xfffffdf000029fd0` changed type from `0x0b` to
-  `0x14`, while its lock field and both adjacent records remained stable;
-- the four preceding calls were `0x0b->0x29`, two `0x0b->0x23` calls, and
-  `0x23->0x0b`;
-- the five-call survey completed in 44.86 seconds within every bound;
-- target return and proxy liveness checks passed.
-
-This verifies a kernel-driven page-table-frame ownership transition, but not the
-corresponding Stage-1 descriptor write or linkage into a live hierarchy. See
-[the bounded evidence note](launch-prep/xnu-phase53-allocation-retype.md).
+This establishes one bounded dynamic Stage-1 mutation chain, not general SPTM
+semantics or a macOS boot. The raw report, event journal, and archive remain
+outside Git; their hashes and exact evidence boundary are recorded in the
+[leaf-binding note](launch-prep/xnu-phase53-leaf-page-bind.md).
 
 ## What is established
 
@@ -52,7 +46,6 @@ corresponding Stage-1 descriptor write or linkage into a live hierarchy. See
 ## What is not established
 
 - General SPTM frame ownership-transfer semantics beyond the observed transactions.
-- The runtime Stage-1 descriptor write corresponding to the verified page-table retype.
 - A complete XNU platform bring-up or macOS boot.
 - AIC, PMGR, DART, AGX firmware, graphics, multicore, sleep/wake, or production
   safety.
@@ -68,11 +61,9 @@ redacted unless a document explicitly says otherwise.
 | Initial virtual-EL2 smoke and SPTM self-configuration | [Smoke result](vel2-hardware-smoke.md) · [Self-configuration result](sptm-self-configuration-result.md) |
 | Guarded-memory experiments | [Stage 0 historical index](real-memory-stage0/README.md) |
 | TXM launch and early XNU execution | [Kernel/platform evidence index](launch-prep/README.md) |
-| Current allocation/retype milestone | [Attempts 103–104](launch-prep/xnu-phase53-allocation-retype.md) |
+| Completed bounded Phase 5.3 chain | [Attempts 111–119](launch-prep/xnu-phase53-leaf-page-bind.md) |
 
-The next unestablished milestone is a verified runtime Stage-1 descriptor change
-associated with the page-table retype. Later platform and GPU work should not be
-reported as completed on the basis of the existing frame-record transition.
+The next frontier is a bounded, source/live-verified AIC initialization observation. Later PMGR, DART, GPU, and platform work should not be reported as completed from the Phase 5.3 result.
 
 Documentation and code-organization tasks are tracked separately in the
 [maintenance review](CODE-REVIEW.md). They do not advance hardware milestones.

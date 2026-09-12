@@ -137,6 +137,4 @@ private evidence, fetched dependencies, payloads, and editor checkpoint refs are
 outside the intended release. No GitHub remote is configured in this checkout at
 review time. No repository has been created or made public by this review.
 
-Validation of this change checks that edited Python files have identical ASTs,
-that pinned patch hashes and copied licenses match their sources, and that local
-Markdown links resolve. No hardware execution or runtime changes are involved.
+The original cleanup validation checked AST-preserving refactoring, pinned patch and license identities, and local links without executing hardware. The refreshed snapshot also includes the Phase 5.3 descriptor/leaf gates and synthetic regressions: 515 configured host tests pass with 5 private-evidence skips, and documentation reachability passes. Attempt 119 hardware evidence is represented only by concise findings and hashes; raw reports, event journals, device trees, payloads, serial paths, and archives remain excluded.

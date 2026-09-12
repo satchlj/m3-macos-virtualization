@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tarfile
 from fresh_gate_receipt import DEFAULT_KEY as FRESH_GATE_KEY, acquire_device_lock, consume_receipt
+from phase53_entropy_replay import (CONFIG_EVIDENCE_FIELD,
+                                    materialize_config_evidence)
 from run_manifest import atomic_json, file_identity, utc
 
 REPO = Path(__file__).resolve().parents[1]
@@ -27,7 +29,9 @@ FIELDS = {'payload','checkout','device','steps','step_batch','trace_window','pau
           'xnu_txm_context_stack_metadata_init','xnu_txm_context_x18_branch_one_step',
           'xnu_txm_context_outbound_branch_one_step','xnu_txm_handler_boundary',
           'xnu_txm_sstep_fast_path','xnu_phase53_allocation_trace',
-          'xnu_phase53_retype_survey','xnu_phase53_retype_survey_limit'}
+          'xnu_phase53_retype_survey','xnu_phase53_retype_survey_limit',
+          'xnu_phase53_descriptor_bind','xnu_phase53_leaf_page_bind',
+          'xnu_phase53_adt_entropy_replay', CONFIG_EVIDENCE_FIELD}
 FLAGS = {'allow_monitor_mmu','emulate_zero_loops','relocate_boot_data','allow_live_ttbr',
          'stop_on_vector_entry','pause_on_guard','observe_sprr','virtual_gxf','stage_el2_config',
          'real_guarded','real_guarded_vbar','stop_on_guarded_vector','first_contact','free_run',
@@ -45,6 +49,9 @@ FLAGS.add('xnu_txm_context_outbound_branch_one_step')
 FLAGS.add('xnu_txm_sstep_fast_path')
 FLAGS.add('xnu_phase53_allocation_trace')
 FLAGS.add('xnu_phase53_retype_survey')
+FLAGS.add('xnu_phase53_descriptor_bind')
+FLAGS.add('xnu_phase53_leaf_page_bind')
+FLAGS.add('xnu_phase53_adt_entropy_replay')
 
 
 # Approximate cost of one USB single-step, from attempt-17 (~525K steps in ~15 min).
@@ -59,6 +66,9 @@ SUMMARY_FIELDS = (
     'xnu_txm_sstep_fast_path',
     'xnu_phase53_allocation_trace',
     'xnu_phase53_retype_survey',
+    'xnu_phase53_descriptor_bind',
+    'xnu_phase53_leaf_page_bind',
+    'xnu_phase53_adt_entropy_replay',
     'xnu_pmcr1_bank_collapse', 'error', 'cleanup_error',
     'xnu_dockchannel_uart_mmio', 'xnu_private_panic_carveout',
     'xnu_private_socd_trace',
@@ -155,6 +165,7 @@ def lint_config(config):
 
 
 def probe_command(config, output, execute):
+    config = materialize_config_evidence(config)
     if set(config)-FIELDS or not {'payload','checkout','device','steps'} <= set(config):
         raise ValueError('Unknown or missing pipeline configuration fields')
     for key in FLAGS & set(config):
@@ -245,6 +256,15 @@ def probe_command(config, output, execute):
             raise ValueError('xnu_phase53_retype_survey_limit must be integer 1..64')
         if not config.get('xnu_phase53_retype_survey'):
             raise ValueError('xnu_phase53_retype_survey_limit requires xnu_phase53_retype_survey')
+    if (config.get('xnu_phase53_descriptor_bind') and
+            not config.get('xnu_phase53_retype_survey')):
+        raise ValueError('xnu_phase53_descriptor_bind requires xnu_phase53_retype_survey')
+    if (config.get('xnu_phase53_leaf_page_bind') and
+            not config.get('xnu_phase53_descriptor_bind')):
+        raise ValueError('xnu_phase53_leaf_page_bind requires xnu_phase53_descriptor_bind')
+    if (config.get('xnu_phase53_adt_entropy_replay') and
+            not config.get('xnu_phase53_retype_survey')):
+        raise ValueError('xnu_phase53_adt_entropy_replay requires xnu_phase53_retype_survey')
     if sum(bool(config.get(name)) for name in ('xnu_txm_context_entry_one_step',
             'xnu_txm_context_entry_register_prefix',
             'xnu_txm_context_stack_claim_one_step',
@@ -338,6 +358,8 @@ def probe_command(config, output, execute):
     command=[sys.executable,str(REPO/'scripts/sptm_entry_probe.py'),
              '--report='+str(output/'report.json'),'--run-dir='+str(output/'runs')]
     for key,value in sorted(config.items()):
+        if key == CONFIG_EVIDENCE_FIELD:
+            continue
         option='--'+key.replace('_','-')
         if key in FLAGS:
             if value:command.append(option)
@@ -393,7 +415,7 @@ def main():
                     help='Authenticated one-use receipt from the accelerated fresh gate')
     ap.add_argument('--legacy-full-gate',action='store_true',
                     help='Transitional assertion that the four-stage legacy gate passed')
-    a=ap.parse_args();config=json.loads(a.config.read_text());output=a.output.resolve()
+    a=ap.parse_args();config=materialize_config_evidence(json.loads(a.config.read_text()));output=a.output.resolve()
     try:
         validate_gate_selection(a.execute,a.fresh_gate_receipt,a.legacy_full_gate)
     except ValueError as error:

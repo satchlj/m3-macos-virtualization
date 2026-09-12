@@ -90,5 +90,7 @@ unit-test discovery. Its scope is documented in the
 [package guide](../scripts/sptm_probe/README.md).
 
 A green suite is not a CPU model, a test of production safety, or evidence of a
-macOS boot. The current refactor's configured run reports 491 tests and 5 expected
-private-evidence skips; the unconfigured run reports 483 tests and 180 skips.
+macOS boot. The recorded structural-refactor baseline was 491 configured tests. With the
+subsequent Phase 5.3 descriptor/leaf extensions, the configured suite reports
+515 tests and 5 expected private-evidence skips; the unconfigured suite reports
+507 tests and 197 skips.

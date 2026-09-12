@@ -23,6 +23,8 @@ from sprr_permissions import leaf_permissions
 from guest_debug import GuestDebugState, UnsupportedGuestDebug
 from guest_exception_stop import GuestExceptionStop
 from guarded_pause import GuardedPause
+from phase53_entropy_replay import (load_pinned_source,
+                                    replay_entropy_properties)
 
 from functools import partial
 from .constants import *
@@ -81,6 +83,17 @@ def run_probe(a, report, save, capture):
     capture.save_input('host-device-tree.adt', adt_bytes)
     report['device_tree_sha256'] = hashlib.sha256(adt_bytes).hexdigest()
     adt = load_adt(adt_bytes)
+    if a.xnu_phase53_adt_entropy_replay:
+        source_blob, source_identity = load_pinned_source(
+            Path(__file__).resolve().parents[1])
+        captured_source = capture.save_input(
+            'phase53-entropy-source-attempt-108.adt', source_blob)
+        report['xnu_phase53_adt_entropy_replay'] = replay_entropy_properties(
+            adt, load_adt(source_blob), source_identity)
+        report['xnu_phase53_adt_entropy_replay']['captured_source'] = captured_source
+    else:
+        report['xnu_phase53_adt_entropy_replay'] = {
+            'requested': False, 'applied': False}
     chip_id = int(adt['chosen'].chip_id)
     report['chip_id'] = hex(chip_id)
     if a.xnu_pperm_guest_window and chip_id not in FC_XNU_M3_COMPAT_CHIPS:
@@ -294,11 +307,24 @@ def run_probe(a, report, save, capture):
     report['xnu_phase53_retype_survey'] = dict(
         requested=bool(a.xnu_phase53_retype_survey), activated=False,
         call_limit=a.xnu_phase53_retype_survey_limit,
+        per_leg_step_limit=FC_XNU_PHASE53_RETYPE_SURVEY_FAST_STEPS,
         aggregate_step_limit=FC_XNU_PHASE53_RETYPE_SURVEY_TOTAL_STEPS,
         rearm_limit=FC_XNU_PHASE53_RETYPE_SURVEY_MAX_REARMS,
         target_types=[hex(value) for value in
                       FC_XNU_PHASE53_RETYPE_SURVEY_TARGET_TYPES],
         primary_target='0xb->0x14')
+    report['xnu_phase53_descriptor_bind'] = dict(
+        requested=bool(a.xnu_phase53_descriptor_bind), activated=False,
+        per_leg_step_limit=FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS,
+        aggregate_step_limit=FC_XNU_PHASE53_DESCRIPTOR_BIND_TOTAL_STEPS,
+        rearm_limit=FC_XNU_PHASE53_DESCRIPTOR_BIND_MAX_REARMS,
+        target='primary 0xb->0x14 page followed by selector-3 L2 bind')
+    report['xnu_phase53_leaf_page_bind'] = dict(
+        requested=bool(a.xnu_phase53_leaf_page_bind), activated=False,
+        per_leg_step_limit=FC_XNU_PHASE53_LEAF_BIND_FAST_STEPS,
+        aggregate_step_limit=FC_XNU_PHASE53_LEAF_BIND_TOTAL_STEPS,
+        rearm_limit=FC_XNU_PHASE53_LEAF_BIND_MAX_REARMS,
+        target='first exact selector-2 leaf bind below the verified L2 table')
     if a.xnu_txm_sstep_fast_path:
         try:
             txm_sstep_fast_path = Vel2StepFilter(p)
@@ -556,6 +582,7 @@ def run_probe(a, report, save, capture):
     txm_validator_trace_state = dict(active=False)
     phase53_allocation_trace_state = dict(active=False)
     phase53_retype_survey_state = dict(active=False)
+    phase53_descriptor_bind_state = dict(active=False)
     xnu_agt_state = dict(previous=None, writes=0)
     xnu_cntp_ctl_state = dict(previous=None, writes=0)
     xnu_pperm_state = dict(previous=None, step=0, modified=False,

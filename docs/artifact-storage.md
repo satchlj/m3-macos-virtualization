@@ -30,5 +30,7 @@ not download payloads. Some historical replay tests skip when their optional raw
 evidence is absent; the small fixtures in `tests/fixtures/` still exercise the
 control path.
 
+The optional Phase 5.3 entropy replay deliberately fails closed unless its pinned Attempt 108 guest ADT is present at the ignored path and matches the recorded size and SHA-256 identity. The repository contains only code and hashes, never that raw ADT or its entropy values.
+
 Never commit Apple payloads, raw device trees, full traces containing machine
 identifiers, credentials, private keys, serial device paths, or build outputs.

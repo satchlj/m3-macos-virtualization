@@ -35,6 +35,8 @@ sequence. Review [the evidence and safety model](../docs/SAFETY.md) separately.
 | [decode_attempt27.py](decode_attempt27.py) | Decode an attempt report into one of the three attempt-27 outcomes. |
 | [replay_table_snapshot.py](replay_table_snapshot.py) | Replay bounded guest translation from hash-verified diagnostic table pages. |
 | [replay_debug_probe.py](replay_debug_probe.py) | Replay debug traps through the real probe callback and an in-memory transport. |
+| [phase53_entropy_replay.py](phase53_entropy_replay.py) | Opt-in, fail-closed replay of three hashed ADT entropy properties from a locally retained pinned source. |
+| [revalidate_phase53_descriptor_bind.py](revalidate_phase53_descriptor_bind.py) | Revalidate a retained descriptor-bind report against its immutable event archive. |
 
 ## Local evidence and repository maintenance
 
@@ -112,6 +114,7 @@ state lifetimes. These are internal modules, not additional CLI entry points.
 | [sptm_probe/constants.py](sptm_probe/constants.py) | Pinned register names and source/byte contracts; not portable defaults. |
 | [sptm_probe/events/__init__.py](sptm_probe/events/__init__.py) | Ordered event-handler implementation; not standalone commands. |
 | [sptm_probe/events/allocation.py](sptm_probe/events/allocation.py) | Allocation event handlers extracted from the original probe callback. |
+| [sptm_probe/events/descriptor.py](sptm_probe/events/descriptor.py) | Phase 5.3 descriptor and leaf binding gates. |
 | [sptm_probe/events/exceptions.py](sptm_probe/events/exceptions.py) | Exceptions event handlers extracted from the original probe callback. |
 | [sptm_probe/events/handoff.py](sptm_probe/events/handoff.py) | Handoff event handlers extracted from the original probe callback. |
 | [sptm_probe/events/native_platform.py](sptm_probe/events/native_platform.py) | Native platform event handlers extracted from the original probe callback. |

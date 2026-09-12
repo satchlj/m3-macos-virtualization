@@ -3,8 +3,8 @@
 [Documentation index](../README.md) · [Current status](../STATUS.md)
 
 This directory records progress from monitor launch through early kernel and
-platform diagnostics. The latest recorded milestone is
-[Phase 5.3 allocation/retype](xnu-phase53-allocation-retype.md). Read
+platform diagnostics. The latest recorded milestone is the
+[completed bounded Phase 5.3 leaf binding](xnu-phase53-leaf-page-bind.md). Read
 [the current status](../STATUS.md) for what that establishes and what remains open.
 
 The earlier plans, blocked attempts, and corrections are retained as evidence.
@@ -39,6 +39,8 @@ instructions. Use the evidence labels in [SAFETY.md](../SAFETY.md).
 | [xnu-panic-carveout.md](xnu-panic-carveout.md) | XNU preserved panic-log memory |
 | [xnu-parser-abort-attempt58.md](xnu-parser-abort-attempt58.md) | Attempt 58 XNU parser abort |
 | [xnu-phase53-allocation-retype.md](xnu-phase53-allocation-retype.md) | XNU Phase 5.3 allocation and SPTM retype evidence |
+| [xnu-phase53-descriptor-bind.md](xnu-phase53-descriptor-bind.md) | Selector-3 L3 table installation evidence |
+| [xnu-phase53-leaf-page-bind.md](xnu-phase53-leaf-page-bind.md) | Completed bounded selector-2 leaf binding evidence |
 | [xnu-physical-timer.md](xnu-physical-timer.md) | XNU early physical timer control |
 | [xnu-pmcr1-bank-collapse.md](xnu-pmcr1-bank-collapse.md) | XNU PMCR1 EL12 bank collapse |
 | [xnu-pperm-window.md](xnu-pperm-window.md) | XNU pmap bootstrap permission window |

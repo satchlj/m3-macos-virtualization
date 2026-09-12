@@ -23,15 +23,16 @@ credentials, or a prebuilt boot image.
 
 ## Current result — September 11, 2026
 
-Bounded M3/J613 experiments observed early XNU execution, a kernel allocation,
-and SPTM frame-ownership transitions, including a page-table-frame retype.
-The guest returned cleanly and the m1n1 proxy remained responsive.
+Attempt 119 completed the bounded Phase 5.3 objective on an M3/J613: one
+kernel-driven allocation and ownership-transfer chain was tied to a live
+selector-3 L3 table installation and selector-2 leaf PTE insertion. The exact
+16 KiB table changed only at the independently computed slot, both services
+returned status zero, the guest returned cleanly, and the proxy remained alive.
 
-**A macOS boot has not been demonstrated.** The corresponding runtime Stage-1
-page-table descriptor mutation, general kernel/platform bring-up, and GPU support
-remain unestablished. [STATUS.md](docs/STATUS.md) distinguishes the recorded
-milestones from the open work and links the
-[latest allocation/retype evidence](docs/launch-prep/xnu-phase53-allocation-retype.md).
+**A macOS boot has not been demonstrated.** This is one bounded dynamic Stage-1
+mutation chain, not general SPTM compatibility. Phase 5.4 AIC initialization is
+the next frontier. [STATUS.md](docs/STATUS.md) distinguishes the verified scope
+from open work and links the [leaf-binding evidence](docs/launch-prep/xnu-phase53-leaf-page-bind.md).
 
 Hardware findings are documented here, but raw captures and proprietary inputs
 are retained outside Git. A fresh clone can run synthetic host checks; it cannot

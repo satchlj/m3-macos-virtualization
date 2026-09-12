@@ -176,9 +176,13 @@ class PipelineTests(unittest.TestCase):
             xnu_txm_sstep_fast_path=True,
             xnu_phase53_allocation_trace=True,
             xnu_phase53_retype_survey=True,
-            xnu_phase53_retype_survey_limit=7), Path('/output'), True)
+            xnu_phase53_retype_survey_limit=7,
+            xnu_phase53_descriptor_bind=True,
+            xnu_phase53_leaf_page_bind=True), Path('/output'), True)
         self.assertIn('--xnu-phase53-retype-survey', survey)
         self.assertIn('--xnu-phase53-retype-survey-limit=7', survey)
+        self.assertIn('--xnu-phase53-descriptor-bind', survey)
+        self.assertIn('--xnu-phase53-leaf-page-bind', survey)
         with self.assertRaisesRegex(ValueError, 'requires xnu_phase53_allocation_trace'):
             probe_command(dict(base, xnu_phase53_retype_survey=True),
                           Path('/output'), True)
@@ -195,6 +199,19 @@ class PipelineTests(unittest.TestCase):
                 xnu_txm_sstep_fast_path=True,
                 xnu_phase53_allocation_trace=True,
                 xnu_phase53_retype_survey_limit=64), Path('/output'), True)
+        with self.assertRaisesRegex(ValueError, 'requires xnu_phase53_retype_survey'):
+            probe_command(dict(
+                base, xnu_txm_handler_boundary='cmd1-completion-trace',
+                xnu_txm_sstep_fast_path=True,
+                xnu_phase53_allocation_trace=True,
+                xnu_phase53_descriptor_bind=True), Path('/output'), True)
+        with self.assertRaisesRegex(ValueError, 'requires xnu_phase53_descriptor_bind'):
+            probe_command(dict(
+                base, xnu_txm_handler_boundary='cmd1-completion-trace',
+                xnu_txm_sstep_fast_path=True,
+                xnu_phase53_allocation_trace=True,
+                xnu_phase53_retype_survey=True,
+                xnu_phase53_leaf_page_bind=True), Path('/output'), True)
         with self.assertRaisesRegex(
                 ValueError, 'requires cmd1-completion-trace and xnu_txm_sstep_fast_path'):
             probe_command(dict(base, xnu_phase53_allocation_trace=True),

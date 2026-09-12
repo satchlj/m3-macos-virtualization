@@ -57,6 +57,9 @@ def main():
     ap.add_argument('--xnu-phase53-allocation-trace', action='store_true', help='After verified cmd1 completion, continue with the bounded firmware filter to the exact XNU allocation call; requires cmd1 completion fast path')
     ap.add_argument('--xnu-phase53-retype-survey', action='store_true', help='After the verified Phase 5.3 allocation retype, survey at most 64 subsequent common-wrapper retypes and stop at the first XNU root/page-table target')
     ap.add_argument('--xnu-phase53-retype-survey-limit', type=int, default=64, help='Maximum completed common-wrapper retypes in the Phase 5.3 survey (1..64)')
+    ap.add_argument('--xnu-phase53-descriptor-bind', action='store_true', help='After the primary 0xb-to-0x14 survey target, verify the bounded selector-3 L2 descriptor bind; requires the Phase 5.3 retype survey')
+    ap.add_argument('--xnu-phase53-leaf-page-bind', action='store_true', help='After the verified selector-3 L2 descriptor bind, verify the bounded selector-2 leaf-page bind; requires the Phase 5.3 descriptor bind')
+    ap.add_argument('--xnu-phase53-adt-entropy-replay', action='store_true', help='Replace only /chosen random-seed, cl4-entropy, and boot-nonce in the constructed guest ADT with the pinned Attempt108 values; requires the Phase 5.3 retype survey')
     ap.add_argument('--hang-budget', type=int, help='Required with --free-run: guest wall-clock limit in seconds (1..86400); timer-polled clean interrupt, then 15s grace')
     ap.add_argument('--free-run', action='store_true', help='Run the guest natively (no single-step) to reach a milestone fast: handle every trap as now but resume without the single-step bit, disable batching, enable HCR.TWE so the panic wfe-halt (0xf8b88) traps (a benign wfe is skipped), and stop at a verified image entry handoff or the panic halt. Pair with --on-demand-stage2. Per-step features (zero-loop emulation, single-step window, guarded-call selectors) do not apply.')
     ap.add_argument('--snapshot-leaf', action='append', default=None, metavar='VA', help='At exit, walk the final monitor ttbr for each VA (hex), save the walked tables, and decode the leaf against live guest SPRR permissions in real mode (staged otherwise); observation only, repeatable')
@@ -144,6 +147,12 @@ def main():
     if (a.xnu_phase53_retype_survey_limit != 64 and
             not a.xnu_phase53_retype_survey):
         ap.error('--xnu-phase53-retype-survey-limit requires --xnu-phase53-retype-survey')
+    if a.xnu_phase53_descriptor_bind and not a.xnu_phase53_retype_survey:
+        ap.error('--xnu-phase53-descriptor-bind requires --xnu-phase53-retype-survey')
+    if a.xnu_phase53_leaf_page_bind and not a.xnu_phase53_descriptor_bind:
+        ap.error('--xnu-phase53-leaf-page-bind requires --xnu-phase53-descriptor-bind')
+    if a.xnu_phase53_adt_entropy_replay and not a.xnu_phase53_retype_survey:
+        ap.error('--xnu-phase53-adt-entropy-replay requires --xnu-phase53-retype-survey')
     if sum((a.xnu_txm_context_entry_one_step,
             a.xnu_txm_context_entry_register_prefix,
             a.xnu_txm_context_stack_claim_one_step,

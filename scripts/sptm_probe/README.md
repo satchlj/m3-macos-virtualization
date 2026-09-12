@@ -18,6 +18,7 @@ modules. Files in this package are implementation modules, not new commands.
 | [callback.py](callback.py) | Ordered event dispatch, exception handling, and callback finalization |
 | [events/allocation.py](events/allocation.py) | Allocation-trace and authenticated-return branches |
 | [events/retype.py](events/retype.py) | Retype-survey branches |
+| [events/descriptor.py](events/descriptor.py) | Descriptor and leaf binding branches |
 | [events/txm_trace.py](events/txm_trace.py) | TXM trace and debug-gate branches |
 | [events/txm_step.py](events/txm_step.py) | Bounded TXM context-step branch |
 | [events/txm_entry.py](events/txm_entry.py) | Context-entry validation branch |
