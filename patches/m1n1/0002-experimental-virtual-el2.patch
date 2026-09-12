@@ -1,0 +1,1059 @@
+diff --git a/Makefile b/Makefile
+index bd325b8..79b89db 100644
+--- a/Makefile
++++ b/Makefile
+@@ -144,7 +144,7 @@ OBJECTS := \
+ 	firmware.o \
+ 	gxf.o gxf_asm.o \
+ 	heapblock.o \
+-	hv.o hv_vm.o hv_exc.o hv_sprr.o hv_vuart.o hv_wdt.o hv_asm.o hv_aic.o hv_virtio.o \
++	hv.o hv_vm.o hv_exc.o hv_vel2.o vel2_state.o vel2_trace.o vel2_step_filter.o hv_sprr.o hv_vuart.o hv_wdt.o hv_asm.o hv_aic.o hv_virtio.o \
+ 	i2c.o \
+ 	iodev.o \
+ 	iova.o \
+diff --git a/proxyclient/m1n1/hv/vel2.py b/proxyclient/m1n1/hv/vel2.py
+new file mode 100644
+index 0000000..3a6121a
+--- /dev/null
++++ b/proxyclient/m1n1/hv/vel2.py
+@@ -0,0 +1,32 @@
++# SPDX-License-Identifier: MIT
++"""Synthetic MMU-off virtual EL2 instruction translation; not an Apple loader."""
++import struct
++from .. import sysreg
++
++REGISTERS = [sysreg.CurrentEL, sysreg.SCTLR_EL2, sysreg.TCR_EL2, sysreg.TTBR0_EL2,
++             sysreg.HCR_EL2, sysreg.VBAR_EL2, sysreg.ELR_EL2, sysreg.SPSR_EL2,
++             sysreg.ESR_EL2, sysreg.FAR_EL2, sysreg.SP_EL1, sysreg.TPIDR_EL2, sysreg.MAIR_EL2]
++REG_HVC = 0x4000
++ERET_HVC = 0x4800
++STOP_HVC = 0x7fff
++
++
++def sysreg_opcode(reg, read):
++    op0, op1, crn, crm, op2 = reg
++    return (0xd5000000 | (int(read) << 21) | (op0 << 19) | (op1 << 16) |
++            (crn << 12) | (crm << 8) | (op2 << 5))
++
++
++def patch_synthetic_code(data):
++    if len(data) % 4:
++        raise ValueError('Instruction stream must be word aligned')
++    opcodes = {sysreg_opcode(reg, read): REG_HVC | (i << 6) | (read << 5)
++               for i, reg in enumerate(REGISTERS) for read in (0, 1)}
++    words = []
++    for (word,) in struct.iter_unpack('<I', data):
++        if word == 0xd69f03e0:  # ERET
++            word = 0xd4000002 | (ERET_HVC << 5)
++        elif word & ~31 in opcodes:
++            word = 0xd4000002 | ((opcodes[word & ~31] | (word & 31)) << 5)
++        words.append(word)
++    return b''.join(struct.pack('<I', word) for word in words)
+diff --git a/proxyclient/m1n1/proxy.py b/proxyclient/m1n1/proxy.py
+index 19a0fbd..87cb141 100644
+--- a/proxyclient/m1n1/proxy.py
++++ b/proxyclient/m1n1/proxy.py
+@@ -662,6 +662,14 @@ class M1N1Proxy(Reloadable):
+     P_HV_EXIT_CPU = 0xc0f
+     P_HV_ADD_TIME = 0xc10
+     P_HV_SPRR_SET_ACTIVE = 0xc11
++    P_HV_VEL2_SET_ACTIVE = 0xc12
++    P_HV_VEL2_TRACE_CONFIG = 0xc13
++    P_HV_VEL2_TRACE_COUNT = 0xc14
++    P_HV_VEL2_TPIDR_GL2_CONFIG = 0xc15
++    P_HV_VEL2_TPIDR_GL2_QUERY = 0xc16
++    P_HV_VEL2_STEP_FILTER_CONFIG = 0xc17
++    P_HV_VEL2_STEP_FILTER_QUERY = 0xc18
++    P_HV_VEL2_STEP_FILTER_EXPECT = 0xc19
+ 
+     P_FB_INIT = 0xd00
+     P_FB_SHUTDOWN = 0xd01
+@@ -1152,6 +1160,88 @@ class M1N1Proxy(Reloadable):
+         return self.request(self.P_HV_EXIT_CPU, cpu)
+     def hv_add_time(self, time):
+         return self.request(self.P_HV_ADD_TIME, time)
++    def hv_vel2_set_active(self, active):
++        result = self.request(self.P_HV_VEL2_SET_ACTIVE, int(bool(active)))
++        if result != 0:
++            raise RuntimeError("Virtual EL2 cannot be combined with SPRR emulation")
++
++    def hv_vel2_trace_config(self, buffer, capacity):
++        if self.request(self.P_HV_VEL2_TRACE_CONFIG, buffer, capacity) != 0:
++            raise RuntimeError("Invalid virtual EL2 trace configuration")
++
++    def hv_vel2_trace_count(self):
++        return self.request(self.P_HV_VEL2_TRACE_COUNT)
++
++    def _hv_vel2_tpidr_gl2_config(self, enabled, tag_base=0, shadow=0):
++        result = self.request(self.P_HV_VEL2_TPIDR_GL2_CONFIG, int(bool(enabled)),
++                              tag_base, shadow)
++        if result != 0:
++            raise RuntimeError("Invalid virtual EL2 TPIDR_GL2 fast-shadow configuration")
++
++    def _hv_vel2_tpidr_gl2_query(self, selector):
++        result = self.request(self.P_HV_VEL2_TPIDR_GL2_QUERY, selector)
++        if result == 0xffffffffffffffff:
++            raise ValueError("Invalid virtual EL2 TPIDR_GL2 fast-shadow selector")
++        return result
++
++    def hv_vel2_tpidr_gl2_shadow_enable(self, tag_base, initial_value):
++        self._hv_vel2_tpidr_gl2_config(True, tag_base, initial_value)
++
++    def hv_vel2_tpidr_gl2_shadow_status(self):
++        return {
++            "enabled": bool(self._hv_vel2_tpidr_gl2_query(0)),
++            "tag_base": self._hv_vel2_tpidr_gl2_query(1),
++            "shadow": self._hv_vel2_tpidr_gl2_query(2),
++            "reads": self._hv_vel2_tpidr_gl2_query(3),
++            "writes": self._hv_vel2_tpidr_gl2_query(4),
++            "forwarded": self._hv_vel2_tpidr_gl2_query(5),
++        }
++
++    def hv_vel2_tpidr_gl2_shadow_disable(self):
++        self._hv_vel2_tpidr_gl2_config(False)
++
++    def _hv_vel2_step_filter_config(self, range0_start=0, range0_end=0,
++                                    range1_start=0, range1_end=0,
++                                    terminal_pc=0, max_steps=0):
++        result = self.request(self.P_HV_VEL2_STEP_FILTER_CONFIG,
++                              range0_start, range0_end,
++                              range1_start, range1_end,
++                              terminal_pc, max_steps)
++        if result != 0:
++            raise RuntimeError("Invalid virtual EL2 step-filter configuration")
++
++    def _hv_vel2_step_filter_query(self, selector):
++        result = self.request(self.P_HV_VEL2_STEP_FILTER_QUERY, selector)
++        if result == 0xffffffffffffffff:
++            raise ValueError("Invalid virtual EL2 step-filter selector")
++        return result
++
++    def hv_vel2_step_filter_enable(self, range0_start, range0_end,
++                                   range1_start, range1_end,
++                                   terminal_pc, max_steps,
++                                   expected_first_pc):
++        self._hv_vel2_step_filter_config(range0_start, range0_end,
++                                         range1_start, range1_end,
++                                         terminal_pc, max_steps)
++        if self.request(self.P_HV_VEL2_STEP_FILTER_EXPECT,
++                        expected_first_pc) != 0:
++            raise RuntimeError("Invalid virtual EL2 step-filter first PC")
++
++    def hv_vel2_step_filter_status(self):
++        names = ("active", "status", "steps", "first_pc", "last_pc",
++                 "previous_pc", "range0_hits", "range1_hits",
++                 "range_switches", "terminal_pc", "max_steps",
++                 "range0_start", "range0_end", "range1_start", "range1_end",
++                 "expected_first_pc")
++        values = [self._hv_vel2_step_filter_query(i)
++                  for i in range(len(names))]
++        result = dict(zip(names, values))
++        result["active"] = bool(result["active"])
++        return result
++
++    def hv_vel2_step_filter_disable(self):
++        self._hv_vel2_step_filter_config()
++
+     def hv_sprr_set_active(self, active):
+         return self.request(self.P_HV_SPRR_SET_ACTIVE, int(bool(active)))
+ 
+diff --git a/src/hv_exc.c b/src/hv_exc.c
+index 11b931c..beeeca9 100644
+--- a/src/hv_exc.c
++++ b/src/hv_exc.c
+@@ -5,6 +5,7 @@
+ #include "cpu_regs.h"
+ #include "exception.h"
+ #include "hv_sprr.h"
++#include "hv_vel2.h"
+ #include "smp.h"
+ #include "string.h"
+ #include "uart.h"
+@@ -452,23 +453,34 @@ void hv_exc_sync(struct exc_info *ctx)
+     hv_get_context(ctx);
+     bool handled = false;
+     u32 ec = FIELD_GET(ESR_EC, ctx->esr);
++    enum vel2_step_filter_result step_filter = VE_STEP_FILTER_INACTIVE;
++    if (ec == ESR_EC_SSTEP_LOWER)
++        step_filter = hv_vel2_step_filter_step(ctx);
++    if (step_filter == VE_STEP_FILTER_HANDLED ||
++        (step_filter == VE_STEP_FILTER_INACTIVE && ec == ESR_EC_SSTEP_LOWER &&
++         hv_vel2_trace_step(ctx))) {
++        hv_set_spsr(ctx->spsr);
++        hv_update_fiq();
++        hv_wdt_breadcrumb('s');
++        return;
++    }
+ 
+     switch (ec) {
+         case ESR_EC_MSR:
+             hv_wdt_breadcrumb('m');
+-            handled = hv_handle_msr_unlocked(ctx, FIELD_GET(ESR_ISS, ctx->esr));
++            handled = !hv_vel2_active() && hv_handle_msr_unlocked(ctx, FIELD_GET(ESR_ISS, ctx->esr));
+             break;
+         case ESR_EC_IMPDEF:
+             hv_wdt_breadcrumb('a');
+             switch (FIELD_GET(ESR_ISS, ctx->esr)) {
+                 case ESR_ISS_IMPDEF_MSR:
+-                    handled = hv_handle_msr_unlocked(ctx, ctx->afsr1);
++                    handled = !hv_vel2_active() && hv_handle_msr_unlocked(ctx, ctx->afsr1);
+                     break;
+             }
+             break;
+         case ESR_EC_HVC:
+             hv_wdt_breadcrumb('h');
+-            if (hv_hvc_dispatch_unlocked(ctx, FIELD_GET(ESR_ISS, ctx->esr))) {
++            if (!hv_vel2_active() && hv_hvc_dispatch_unlocked(ctx, FIELD_GET(ESR_ISS, ctx->esr))) {
+                 hv_wdt_breadcrumb('s');
+                 return;
+             }
+@@ -493,19 +505,21 @@ void hv_exc_sync(struct exc_info *ctx)
+             break;
+         case ESR_EC_MSR:
+             hv_wdt_breadcrumb('M');
+-            handled = hv_handle_msr(ctx, FIELD_GET(ESR_ISS, ctx->esr));
++            handled = !hv_vel2_active() && hv_handle_msr(ctx, FIELD_GET(ESR_ISS, ctx->esr));
+             break;
+         case ESR_EC_IMPDEF:
+             hv_wdt_breadcrumb('A');
+             switch (FIELD_GET(ESR_ISS, ctx->esr)) {
+                 case ESR_ISS_IMPDEF_MSR:
+-                    handled = hv_handle_msr(ctx, ctx->afsr1);
++                    handled = !hv_vel2_active() && hv_handle_msr(ctx, ctx->afsr1);
+                     break;
+             }
+             break;
+         case ESR_EC_HVC:
+             hv_wdt_breadcrumb('H');
+-            handled = hv_hvc_dispatch(ctx, FIELD_GET(ESR_ISS, ctx->esr));
++            handled = hv_vel2_active()
++                ? hv_vel2_handle(ctx, FIELD_GET(ESR_ISS, ctx->esr))
++                : hv_hvc_dispatch(ctx, FIELD_GET(ESR_ISS, ctx->esr));
+             break;
+     }
+ 
+diff --git a/src/hv_vel2.c b/src/hv_vel2.c
+new file mode 100644
+index 0000000..6a89c34
+--- /dev/null
++++ b/src/hv_vel2.c
+@@ -0,0 +1,273 @@
++/* SPDX-License-Identifier: MIT */
++#include "hv_vel2.h"
++#include "vel2_state.h"
++#include "vel2_trace.h"
++#include "vel2_step_filter.h"
++#include "hv_sprr.h"
++#include "smp.h"
++#include "string.h"
++#include "uart.h"
++#include "cpu_regs.h"
++
++static struct vel2_state states[MAX_CPUS];
++static struct vel2_trace traces[MAX_CPUS];
++static struct vel2_step_filter step_filters[MAX_CPUS];
++
++struct vel2_tpidr_gl2_fast {
++    bool enabled;
++    u16 tag_base;
++    u64 shadow, reads, writes, forwarded;
++};
++
++static struct vel2_tpidr_gl2_fast tpidr_gl2_fast[MAX_CPUS];
++
++enum vel2_tpidr_gl2_result {
++    TPIDR_GL2_DISABLED,
++    TPIDR_GL2_HANDLED,
++    TPIDR_GL2_FORWARD,
++};
++
++static void hv_vel2_tpidr_gl2_reset(void)
++{
++    tpidr_gl2_fast[smp_id()] = (struct vel2_tpidr_gl2_fast){};
++}
++
++static enum vel2_tpidr_gl2_result hv_vel2_tpidr_gl2_handle(struct exc_info *ctx, u16 imm)
++{
++    struct vel2_tpidr_gl2_fast *fast = &tpidr_gl2_fast[smp_id()];
++    if (!fast->enabled)
++        return TPIDR_GL2_DISABLED;
++
++    u16 tag_base = imm & ~0x3f;
++    u8 rt = imm & 31;
++    if (tag_base != fast->tag_base) {
++        fast->forwarded++;
++        return TPIDR_GL2_FORWARD;
++    }
++    if (imm & 0x20) {
++        if (rt != 31)
++            ctx->regs[rt] = fast->shadow;
++        fast->reads++;
++        return TPIDR_GL2_HANDLED;
++    }
++
++    fast->shadow = rt == 31 ? 0 : ctx->regs[rt];
++    fast->writes++;
++    return TPIDR_GL2_HANDLED;
++}
++
++bool hv_vel2_active(void)
++{
++    return states[smp_id()].enabled;
++}
++
++int hv_vel2_set_active(bool enabled)
++{
++    /* Fast shadows never survive a VEL2 disable or a new VEL2 session. */
++    hv_vel2_tpidr_gl2_reset();
++    if (enabled && hv_sprr_active)
++        return -1; /* Combining guarded worlds needs a separate implementation. */
++    if (states[smp_id()].regs[VE_SCTLR] & 1) {
++        msr(SYS_SCTLR_EL12, 0x30d00800);
++        sysop("isb");
++        sysop("dsb ishst");
++        sysop("tlbi vmalle1is");
++        sysop("dsb ish");
++        sysop("isb");
++    }
++    vel2_trace_configure(&traces[smp_id()], NULL, 0);
++    vel2_step_filter_reset(&step_filters[smp_id()]);
++    vel2_reset(&states[smp_id()], enabled);
++    return 0;
++}
++
++bool hv_vel2_handle(struct exc_info *ctx, u16 imm)
++{
++    enum vel2_tpidr_gl2_result fast = hv_vel2_tpidr_gl2_handle(ctx, imm);
++    if (fast == TPIDR_GL2_HANDLED) {
++        if (step_filters[smp_id()].status == VE_STEP_FILTER_RUNNING)
++            ctx->spsr |= 1ULL << 21;
++        return true;
++    }
++    if (fast == TPIDR_GL2_FORWARD)
++        return false;
++
++    struct vel2_frame f = {.pc = ctx->elr, .pstate = ctx->spsr, .sp = ctx->sp[1]};
++    memcpy(f.x, ctx->regs, sizeof(f.x));
++    struct vel2_state *state = &states[smp_id()];
++    u64 old_sctlr = state->regs[VE_SCTLR];
++    enum vel2_result result = vel2_handle(state, &f, imm);
++    if (result != VE_OK) {
++        printf("VEL2-STAGE stopped reason=%d hvc=%x\n", result, imm);
++        return false;
++    }
++    if (old_sctlr != state->regs[VE_SCTLR]) {
++        /* EL12 aliases address only guest stage 1 under host VHE. */
++        msr(SYS_SCTLR_EL12, 0x30d00800);
++        sysop("isb");
++        if (state->regs[VE_SCTLR] & 1) {
++            /* EL2 PS[18:16] becomes EL1 IPS[34:32]; disable TTBR1 walks. */
++            u64 tcr = (state->regs[VE_TCR] & 0xffff) | (3ULL << 32) | (1ULL << 23) | (1ULL << 30) | (22ULL << 16);
++            if (state->regs[VE_HCR] == VE_HCR_VHE)
++                tcr = state->regs[VE_TCR];
++            msr(SYS_MAIR_EL12, state->regs[VE_MAIR]);
++            msr(SYS_TCR_EL12, tcr);
++            msr(SYS_TTBR0_EL12, state->regs[VE_TTBR0]);
++        }
++        sysop("dsb ishst");
++        sysop("tlbi vmalle1is");
++        sysop("dsb ish");
++        sysop("isb");
++        msr(SYS_SCTLR_EL12, 0x30d00800 | (state->regs[VE_SCTLR] & 1));
++        sysop("isb");
++    }
++    /* An emulated exception return/HVC can restore a saved PSTATE with SS clear.
++     * Keep a bounded filtered run armed across that world transition; the next
++     * step policy check still owns the PC range and terminal gate. */
++    if (step_filters[smp_id()].status == VE_STEP_FILTER_RUNNING)
++        f.pstate |= 1ULL << 21;
++    memcpy(ctx->regs, f.x, sizeof(f.x));
++    ctx->elr = f.pc;
++    ctx->spsr = f.pstate;
++    ctx->sp[1] = f.sp;
++    return true;
++}
++
++int hv_vel2_trace_config(void *buffer, u64 capacity)
++{
++    if (capacity && !hv_vel2_active())
++        return -1;
++    return vel2_trace_configure(&traces[smp_id()], buffer, capacity);
++}
++
++u64 hv_vel2_trace_count(void)
++{
++    return traces[smp_id()].count;
++}
++
++bool hv_vel2_trace_step(struct exc_info *ctx)
++{
++    if (!hv_vel2_active())
++        return false;
++    struct vel2_trace_record record = {
++        .pc = ctx->elr, .esr = ctx->esr, .far = ctx->far, .pstate = ctx->spsr,
++    };
++    memcpy(record.regs, ctx->regs, sizeof(record.regs));
++    memcpy(record.sp, ctx->sp, sizeof(record.sp));
++    if (!vel2_trace_push(&traces[smp_id()], &record))
++        return false;
++    ctx->spsr |= 1ULL << 21; /* Re-arm stepping; never advance the saved PC. */
++    return true;
++}
++
++int hv_vel2_step_filter_config(u64 range0_start, u64 range0_end,
++                               u64 range1_start, u64 range1_end,
++                               u64 terminal_pc, u64 max_steps)
++{
++    if (max_steps && !hv_vel2_active())
++        return -1;
++    return vel2_step_filter_configure(&step_filters[smp_id()],
++                                      range0_start, range0_end,
++                                      range1_start, range1_end,
++                                      terminal_pc, max_steps);
++}
++
++int hv_vel2_step_filter_expect(u64 expected_first_pc)
++{
++    return vel2_step_filter_expect(&step_filters[smp_id()], expected_first_pc);
++}
++
++u64 hv_vel2_step_filter_query(u64 selector)
++{
++    struct vel2_step_filter *filter = &step_filters[smp_id()];
++    switch (selector) {
++        case 0:
++            return filter->status == VE_STEP_FILTER_RUNNING;
++        case 1:
++            return filter->status;
++        case 2:
++            return filter->steps;
++        case 3:
++            return filter->first_pc;
++        case 4:
++            return filter->last_pc;
++        case 5:
++            return filter->previous_pc;
++        case 6:
++            return filter->range_hits[0];
++        case 7:
++            return filter->range_hits[1];
++        case 8:
++            return filter->range_switches;
++        case 9:
++            return filter->terminal_pc;
++        case 10:
++            return filter->max_steps;
++        case 11:
++            return filter->range_start[0];
++        case 12:
++            return filter->range_end[0];
++        case 13:
++            return filter->range_start[1];
++        case 14:
++            return filter->range_end[1];
++        case 15:
++            return filter->expected_first_pc;
++        default:
++            return UINT64_MAX;
++    }
++}
++
++enum vel2_step_filter_result hv_vel2_step_filter_step(struct exc_info *ctx)
++{
++    struct vel2_step_filter *filter = &step_filters[smp_id()];
++    bool valid_context = vel2_step_filter_valid_context(
++        FIELD_GET(ESR_EC, ctx->esr), ctx->spsr);
++    enum vel2_step_filter_result result = vel2_step_filter_handle(
++        filter, ctx->elr, valid_context);
++    if (result == VE_STEP_FILTER_HANDLED)
++        ctx->spsr |= 1ULL << 21;
++    return result;
++}
++
++int hv_vel2_tpidr_gl2_config(bool enabled, u64 tag_base, u64 shadow)
++{
++    hv_vel2_tpidr_gl2_reset();
++    if (!enabled)
++        return 0;
++    if (!hv_vel2_active() || tag_base > UINT16_MAX)
++        return -1;
++
++    /* Probe sysreg HVCs use bit 15, bits 13:6 as the register index,
++     * bit 5 as direction, and bits 4:0 as Rt. Accept one exact index. */
++    if ((tag_base & 0xc03f) != 0x8000)
++        return -1;
++
++    tpidr_gl2_fast[smp_id()] = (struct vel2_tpidr_gl2_fast){
++        .enabled = true,
++        .tag_base = tag_base,
++        .shadow = shadow,
++    };
++    return 0;
++}
++
++u64 hv_vel2_tpidr_gl2_query(u64 selector)
++{
++    struct vel2_tpidr_gl2_fast *fast = &tpidr_gl2_fast[smp_id()];
++    switch (selector) {
++        case 0:
++            return fast->enabled;
++        case 1:
++            return fast->tag_base;
++        case 2:
++            return fast->shadow;
++        case 3:
++            return fast->reads;
++        case 4:
++            return fast->writes;
++        case 5:
++            return fast->forwarded;
++        default:
++            return UINT64_MAX;
++    }
++}
+diff --git a/src/hv_vel2.h b/src/hv_vel2.h
+new file mode 100644
+index 0000000..c9de180
+--- /dev/null
++++ b/src/hv_vel2.h
+@@ -0,0 +1,20 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef HV_VEL2_H
++#define HV_VEL2_H
++#include "exception.h"
++#include "vel2_step_filter.h"
++bool hv_vel2_active(void);
++int hv_vel2_set_active(bool enabled);
++bool hv_vel2_handle(struct exc_info *ctx, u16 imm);
++int hv_vel2_trace_config(void *buffer, u64 capacity);
++u64 hv_vel2_trace_count(void);
++bool hv_vel2_trace_step(struct exc_info *ctx);
++int hv_vel2_step_filter_config(u64 range0_start, u64 range0_end,
++                               u64 range1_start, u64 range1_end,
++                               u64 terminal_pc, u64 max_steps);
++int hv_vel2_step_filter_expect(u64 expected_first_pc);
++u64 hv_vel2_step_filter_query(u64 selector);
++enum vel2_step_filter_result hv_vel2_step_filter_step(struct exc_info *ctx);
++int hv_vel2_tpidr_gl2_config(bool enabled, u64 tag_base, u64 shadow);
++u64 hv_vel2_tpidr_gl2_query(u64 selector);
++#endif
+diff --git a/src/proxy.c b/src/proxy.c
+index 92d1422..9b4a863 100644
+--- a/src/proxy.c
++++ b/src/proxy.c
+@@ -11,6 +11,7 @@
+ #include "heapblock.h"
+ #include "hv.h"
+ #include "hv_sprr.h"
++#include "hv_vel2.h"
+ #include "iodev.h"
+ #include "kboot.h"
+ #include "malloc.h"
+@@ -545,9 +546,42 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
+             hv_add_time(request->args[0]);
+             break;
+         case P_HV_SPRR_SET_ACTIVE:
++            if (request->args[0] && hv_vel2_active()) {
++                reply->retval = (u64)-1;
++                break;
++            }
+             hv_sprr_set_active(request->args[0]);
+             break;
+ 
++        case P_HV_VEL2_SET_ACTIVE:
++            reply->retval = hv_vel2_set_active(request->args[0]);
++            break;
++
++        case P_HV_VEL2_TRACE_CONFIG:
++            reply->retval = hv_vel2_trace_config((void *)request->args[0], request->args[1]);
++            break;
++        case P_HV_VEL2_TRACE_COUNT:
++            reply->retval = hv_vel2_trace_count();
++            break;
++        case P_HV_VEL2_TPIDR_GL2_CONFIG:
++            reply->retval = hv_vel2_tpidr_gl2_config(request->args[0], request->args[1],
++                                                     request->args[2]);
++            break;
++        case P_HV_VEL2_TPIDR_GL2_QUERY:
++            reply->retval = hv_vel2_tpidr_gl2_query(request->args[0]);
++            break;
++        case P_HV_VEL2_STEP_FILTER_CONFIG:
++            reply->retval = hv_vel2_step_filter_config(
++                request->args[0], request->args[1], request->args[2],
++                request->args[3], request->args[4], request->args[5]);
++            break;
++        case P_HV_VEL2_STEP_FILTER_QUERY:
++            reply->retval = hv_vel2_step_filter_query(request->args[0]);
++            break;
++        case P_HV_VEL2_STEP_FILTER_EXPECT:
++            reply->retval = hv_vel2_step_filter_expect(request->args[0]);
++            break;
++
+         case P_FB_INIT:
+             fb_init(request->args[0]);
+             break;
+diff --git a/src/proxy.h b/src/proxy.h
+index b8796b1..eb30036 100644
+--- a/src/proxy.h
++++ b/src/proxy.h
+@@ -147,6 +147,14 @@ typedef enum {
+     P_HV_EXIT_CPU,
+     P_HV_ADD_TIME,
+     P_HV_SPRR_SET_ACTIVE,
++    P_HV_VEL2_SET_ACTIVE,
++    P_HV_VEL2_TRACE_CONFIG,
++    P_HV_VEL2_TRACE_COUNT,
++    P_HV_VEL2_TPIDR_GL2_CONFIG,
++    P_HV_VEL2_TPIDR_GL2_QUERY,
++    P_HV_VEL2_STEP_FILTER_CONFIG,
++    P_HV_VEL2_STEP_FILTER_QUERY,
++    P_HV_VEL2_STEP_FILTER_EXPECT,
+ 
+     P_FB_INIT = 0xd00,
+     P_FB_SHUTDOWN,
+diff --git a/src/vel2_state.c b/src/vel2_state.c
+new file mode 100644
+index 0000000..01aae22
+--- /dev/null
++++ b/src/vel2_state.c
+@@ -0,0 +1,99 @@
++/* SPDX-License-Identifier: MIT */
++#include "vel2_state.h"
++
++#define MODE_MASK 0xfULL
++#define EL1H 5ULL
++#define EL2H 9ULL
++#define DAIF 0x3c0ULL
++#define NZCV 0xf0000000ULL
++#define PSTATE_ALLOWED (MODE_MASK | DAIF | NZCV)
++
++void vel2_reset(struct vel2_state *s, bool enabled)
++{
++    *s = (struct vel2_state){.enabled = enabled, .pstate = EL2H | DAIF};
++}
++
++bool vel2_mmu_config_valid(const struct vel2_state *s)
++{
++    return s->regs[VE_TCR] == (s->regs[VE_HCR] == VE_HCR_VHE ? VE_TCR_VHE_16K_42 : VE_TCR_16K_42) &&
++           s->regs[VE_MAIR] == 0xff && s->regs[VE_TTBR0] != 0 &&
++           !(s->regs[VE_TTBR0] & ~((1ULL << 42) - 0x4000));
++}
++
++static enum vel2_result access_reg(struct vel2_state *s, struct vel2_frame *f,
++                                    unsigned reg, bool read, unsigned rt)
++{
++    if (reg >= VE_REG_COUNT || rt > 31)
++        return VE_BAD_ACCESS;
++    if (reg != VE_CURRENTEL && (s->pstate & MODE_MASK) != EL2H)
++        return VE_BAD_ACCESS;
++    if (!read && reg == VE_CURRENTEL)
++        return VE_BAD_ACCESS;
++    uint64_t value = rt == 31 ? 0 : f->x[rt];
++    if (!read) {
++        /* Narrow synthetic regime: no cache enable or unmodelled SCTLR bits. */
++        if (reg == VE_SCTLR && (value & ~1ULL))
++            return VE_UNSUPPORTED;
++        if (reg == VE_SCTLR && (value & 1) && !vel2_mmu_config_valid(s))
++            return VE_UNSUPPORTED;
++        if (reg == VE_HCR && value != 0 && value != VE_HCR_VHE)
++            return VE_UNSUPPORTED;
++        /* No live table-root/control changes until TLBI/context semantics exist. */
++        if ((s->regs[VE_SCTLR] & 1) &&
++            (reg == VE_TCR || reg == VE_TTBR0 || reg == VE_MAIR || reg == VE_HCR))
++            return VE_UNSUPPORTED;
++        if (reg == VE_VBAR && (value & 0x7ff))
++            return VE_BAD_ACCESS;
++        s->regs[reg] = value;
++    } else if (rt != 31) {
++        f->x[rt] = reg == VE_CURRENTEL ? ((s->pstate & MODE_MASK) == EL2H ? 8 : 4)
++                                       : s->regs[reg];
++    }
++    return VE_OK;
++}
++
++static enum vel2_result exception_return(struct vel2_state *s, struct vel2_frame *f)
++{
++    uint64_t target = s->regs[VE_SPSR];
++    uint64_t mode = target & MODE_MASK;
++    if ((s->pstate & MODE_MASK) != EL2H)
++        return VE_BAD_ACCESS;
++    if ((s->regs[VE_SCTLR] & 1) || (mode == EL1H && s->regs[VE_HCR] == VE_HCR_VHE))
++        return VE_UNSUPPORTED; /* A lower-world translation context is not implemented yet. */
++    if ((mode != EL1H && mode != EL2H) || (target & ~PSTATE_ALLOWED))
++        return VE_UNSUPPORTED;
++    if (s->regs[VE_ELR] & 3)
++        return VE_BAD_ACCESS;
++    s->sp_el2 = f->sp;
++    if (mode == EL1H)
++        f->sp = s->regs[VE_SP_EL1];
++    s->pstate = target;
++    f->pc = s->regs[VE_ELR];
++    /* Both virtual levels execute physically at EL1h with IRQs masked. */
++    f->pstate = (target & NZCV) | DAIF | EL1H;
++    return VE_OK;
++}
++
++enum vel2_result vel2_handle(struct vel2_state *s, struct vel2_frame *f, uint16_t imm)
++{
++    if (!s->enabled)
++        return VE_DISABLED;
++    if ((imm & 0xf800) == VE_REG_HVC)
++        return access_reg(s, f, (imm >> 6) & 0x1f, (imm & 0x20) != 0, imm & 31);
++    if (imm == VE_ERET_HVC)
++        return exception_return(s, f);
++    if (imm == VE_STOP_HVC || (s->pstate & MODE_MASK) != EL1H)
++        return VE_UNSUPPORTED;
++    if (!s->regs[VE_VBAR] || s->regs[VE_VBAR] > UINT64_MAX - 0x400)
++        return VE_BAD_ACCESS;
++    /* AArch64 HVC from virtual EL1: lower-EL synchronous vector, PC after HVC. */
++    s->regs[VE_SPSR] = (s->pstate & ~NZCV) | (f->pstate & NZCV);
++    s->regs[VE_ELR] = f->pc;
++    s->regs[VE_ESR] = (0x16ULL << 26) | (1ULL << 25) | imm;
++    s->regs[VE_SP_EL1] = f->sp;
++    f->sp = s->sp_el2;
++    f->pc = s->regs[VE_VBAR] + 0x400;
++    s->pstate = (s->regs[VE_SPSR] & NZCV) | DAIF | EL2H;
++    f->pstate = (s->pstate & NZCV) | DAIF | EL1H;
++    return VE_OK;
++}
+diff --git a/src/vel2_state.h b/src/vel2_state.h
+new file mode 100644
+index 0000000..bb35688
+--- /dev/null
++++ b/src/vel2_state.h
+@@ -0,0 +1,33 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef VEL2_STATE_H
++#define VEL2_STATE_H
++#include <stdbool.h>
++#include <stdint.h>
++
++/* Experimental MMU-off state machine, shared by native tests and the proxy. */
++enum vel2_reg {
++    VE_CURRENTEL, VE_SCTLR, VE_TCR, VE_TTBR0, VE_HCR, VE_VBAR, VE_ELR,
++    VE_SPSR, VE_ESR, VE_FAR, VE_SP_EL1, VE_TPIDR, VE_MAIR, VE_REG_COUNT
++};
++enum vel2_result { VE_OK, VE_DISABLED, VE_BAD_ACCESS, VE_UNSUPPORTED };
++#define VE_REG_HVC 0x4000
++#define VE_ERET_HVC 0x4800
++#define VE_STOP_HVC 0x7fff
++
++struct vel2_state {
++    uint64_t regs[VE_REG_COUNT];
++    uint64_t pstate, sp_el2;
++    bool enabled;
++};
++struct vel2_frame {
++    uint64_t x[32];
++    uint64_t pc, pstate, sp;
++};
++/* First supported non-VHE EL2 translation regime: 42-bit VA/PA, 16K, WB walks. */
++#define VE_TCR_16K_42 0x8083b516ULL
++#define VE_HCR_VHE 0x408000000ULL
++#define VE_TCR_VHE_16K_42 0x34096b516ULL
++bool vel2_mmu_config_valid(const struct vel2_state *s);
++void vel2_reset(struct vel2_state *s, bool enabled);
++enum vel2_result vel2_handle(struct vel2_state *s, struct vel2_frame *f, uint16_t imm);
++#endif
+diff --git a/src/vel2_step_filter.c b/src/vel2_step_filter.c
+new file mode 100644
+index 0000000..c381be0
+--- /dev/null
++++ b/src/vel2_step_filter.c
+@@ -0,0 +1,102 @@
++/* SPDX-License-Identifier: MIT */
++#include "vel2_step_filter.h"
++
++void vel2_step_filter_reset(struct vel2_step_filter *filter)
++{
++    *filter = (struct vel2_step_filter){};
++}
++
++int vel2_step_filter_expect(struct vel2_step_filter *filter,
++                            uint64_t expected_first_pc)
++{
++    if (filter->status != VE_STEP_FILTER_RUNNING || filter->steps ||
++        (expected_first_pc & 3) ||
++        !((filter->range_start[0] <= expected_first_pc &&
++           expected_first_pc < filter->range_end[0]) ||
++          (filter->range_start[1] <= expected_first_pc &&
++           expected_first_pc < filter->range_end[1])))
++        return -1;
++    filter->expected_first_pc = expected_first_pc;
++    return 0;
++}
++
++int vel2_step_filter_configure(struct vel2_step_filter *filter,
++                               uint64_t range0_start, uint64_t range0_end,
++                               uint64_t range1_start, uint64_t range1_end,
++                               uint64_t terminal_pc, uint64_t max_steps)
++{
++    vel2_step_filter_reset(filter);
++    if (!max_steps)
++        return 0;
++    if (max_steps > VE_STEP_FILTER_MAX_STEPS || range0_start >= range0_end ||
++        range1_start >= range1_end ||
++        ((range0_start | range0_end | range1_start | range1_end |
++          terminal_pc) & 3))
++        return -1;
++
++    *filter = (struct vel2_step_filter){
++        .range_start = {range0_start, range1_start},
++        .range_end = {range0_end, range1_end},
++        .terminal_pc = terminal_pc,
++        .max_steps = max_steps,
++        .last_range = UINT8_MAX,
++        .status = VE_STEP_FILTER_RUNNING,
++    };
++    return 0;
++}
++
++bool vel2_step_filter_valid_context(uint32_t ec, uint64_t spsr)
++{
++    uint64_t mode = spsr & 15;
++
++    /* Guarded TXM executes at EL0t; SPTM callbacks use EL1t or EL1h. */
++    return ec == 0x32 && (mode == 0 || mode == 4 || mode == 5);
++}
++
++enum vel2_step_filter_result vel2_step_filter_handle(
++    struct vel2_step_filter *filter, uint64_t pc, bool valid_context)
++{
++    if (filter->status != VE_STEP_FILTER_RUNNING)
++        return VE_STEP_FILTER_INACTIVE;
++
++    filter->previous_pc = filter->last_pc;
++    filter->last_pc = pc;
++    if (!valid_context) {
++        filter->status = VE_STEP_FILTER_BAD_CONTEXT;
++        return VE_STEP_FILTER_STOP;
++    }
++    if (!filter->steps && filter->expected_first_pc &&
++        pc != filter->expected_first_pc) {
++        filter->status = VE_STEP_FILTER_ENTRY_MISMATCH;
++        return VE_STEP_FILTER_STOP;
++    }
++    if (pc == filter->terminal_pc) {
++        filter->status = VE_STEP_FILTER_TERMINAL;
++        return VE_STEP_FILTER_STOP;
++    }
++
++    unsigned int range = 2;
++    for (unsigned int i = 0; i < 2; i++) {
++        if (filter->range_start[i] <= pc && pc < filter->range_end[i]) {
++            range = i;
++            break;
++        }
++    }
++    if (range == 2) {
++        filter->status = VE_STEP_FILTER_OUTSIDE;
++        return VE_STEP_FILTER_STOP;
++    }
++    if (filter->steps >= filter->max_steps) {
++        filter->status = VE_STEP_FILTER_LIMIT;
++        return VE_STEP_FILTER_STOP;
++    }
++
++    if (!filter->steps)
++        filter->first_pc = pc;
++    if (filter->last_range != UINT8_MAX && filter->last_range != range)
++        filter->range_switches++;
++    filter->last_range = range;
++    filter->range_hits[range]++;
++    filter->steps++;
++    return VE_STEP_FILTER_HANDLED;
++}
+diff --git a/src/vel2_step_filter.h b/src/vel2_step_filter.h
+new file mode 100644
+index 0000000..aff8df5
+--- /dev/null
++++ b/src/vel2_step_filter.h
+@@ -0,0 +1,46 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef VEL2_STEP_FILTER_H
++#define VEL2_STEP_FILTER_H
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#define VE_STEP_FILTER_MAX_STEPS (1ULL << 24)
++
++enum vel2_step_filter_status {
++    VE_STEP_FILTER_DISABLED,
++    VE_STEP_FILTER_RUNNING,
++    VE_STEP_FILTER_ENTRY_MISMATCH,
++    VE_STEP_FILTER_TERMINAL,
++    VE_STEP_FILTER_OUTSIDE,
++    VE_STEP_FILTER_LIMIT,
++    VE_STEP_FILTER_BAD_CONTEXT,
++};
++
++enum vel2_step_filter_result {
++    VE_STEP_FILTER_INACTIVE,
++    VE_STEP_FILTER_HANDLED,
++    VE_STEP_FILTER_STOP,
++};
++
++struct vel2_step_filter {
++    uint64_t range_start[2], range_end[2];
++    uint64_t terminal_pc, expected_first_pc, max_steps, steps;
++    uint64_t first_pc, previous_pc, last_pc;
++    uint64_t range_hits[2], range_switches;
++    uint8_t last_range;
++    enum vel2_step_filter_status status;
++};
++
++void vel2_step_filter_reset(struct vel2_step_filter *filter);
++int vel2_step_filter_configure(struct vel2_step_filter *filter,
++                               uint64_t range0_start, uint64_t range0_end,
++                               uint64_t range1_start, uint64_t range1_end,
++                               uint64_t terminal_pc, uint64_t max_steps);
++int vel2_step_filter_expect(struct vel2_step_filter *filter,
++                            uint64_t expected_first_pc);
++bool vel2_step_filter_valid_context(uint32_t ec, uint64_t spsr);
++enum vel2_step_filter_result vel2_step_filter_handle(
++    struct vel2_step_filter *filter, uint64_t pc, bool valid_context);
++
++#endif
+diff --git a/src/vel2_trace.c b/src/vel2_trace.c
+new file mode 100644
+index 0000000..da2e934
+--- /dev/null
++++ b/src/vel2_trace.c
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: MIT */
++#include "vel2_trace.h"
++int vel2_trace_configure(struct vel2_trace *trace, struct vel2_trace_record *records, uint64_t capacity)
++{
++    if (capacity > VE_TRACE_MAX || (capacity && (!records || ((uintptr_t)records & 7))))
++        return -1;
++    *trace = (struct vel2_trace){.records = records, .capacity = capacity};
++    return 0;
++}
++bool vel2_trace_push(struct vel2_trace *trace, const struct vel2_trace_record *record)
++{
++    /* Only ordinary lower-EL AArch64 software-step exceptions at physical EL1. */
++    uint64_t mode = record->pstate & 15;
++    if ((record->esr >> 26) != 0x32 || (mode != 4 && mode != 5) ||
++        !trace->records || trace->count >= trace->capacity)
++        return false;
++    trace->records[trace->count++] = *record;
++    return true;
++}
+diff --git a/src/vel2_trace.h b/src/vel2_trace.h
+new file mode 100644
+index 0000000..d9a0b85
+--- /dev/null
++++ b/src/vel2_trace.h
+@@ -0,0 +1,17 @@
++/* SPDX-License-Identifier: MIT */
++#ifndef VEL2_TRACE_H
++#define VEL2_TRACE_H
++#include <stdint.h>
++#include <stdbool.h>
++#define VE_TRACE_MAX 256
++struct vel2_trace_record {
++    uint64_t pc, esr, far, pstate;
++    uint64_t regs[32], sp[3];
++};
++struct vel2_trace {
++    struct vel2_trace_record *records;
++    uint64_t capacity, count;
++};
++int vel2_trace_configure(struct vel2_trace *trace, struct vel2_trace_record *records, uint64_t capacity);
++bool vel2_trace_push(struct vel2_trace *trace, const struct vel2_trace_record *record);
++#endif
+diff --git a/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py b/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py
+new file mode 100644
+index 0000000..b46f3c5
+--- /dev/null
++++ b/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py
+@@ -0,0 +1,88 @@
++# SPDX-License-Identifier: MIT
++"""Host-independent tests for the virtual EL2 proxy API."""
++
++import pytest
++
++from proxyclient.m1n1.proxy import M1N1Proxy
++
++
++def proxy_with_replies(replies=None):
++    proxy = object.__new__(M1N1Proxy)
++    calls = []
++    replies = replies or {}
++
++    def request(opcode, *args):
++        calls.append((opcode, *args))
++        if opcode in (proxy.P_HV_VEL2_TPIDR_GL2_QUERY,
++                      proxy.P_HV_VEL2_STEP_FILTER_QUERY):
++            return replies[args[0]]
++        return 0
++
++    proxy.request = request
++    return proxy, calls
++
++
++def test_tpidr_gl2_fast_shadow_enable_and_disable():
++    proxy, calls = proxy_with_replies()
++    proxy.hv_vel2_tpidr_gl2_shadow_enable(0xb0c0, 0xfffffe00070c0000)
++    proxy.hv_vel2_tpidr_gl2_shadow_disable()
++    assert calls == [
++        (proxy.P_HV_VEL2_TPIDR_GL2_CONFIG, 1, 0xb0c0, 0xfffffe00070c0000),
++        (proxy.P_HV_VEL2_TPIDR_GL2_CONFIG, 0, 0, 0),
++    ]
++
++
++def test_tpidr_gl2_fast_shadow_status_schema():
++    proxy, calls = proxy_with_replies({
++        0: 1, 1: 0xb0c0, 2: 0xfffffe00070c0000,
++        3: 1234, 4: 2, 5: 17,
++    })
++    assert proxy.hv_vel2_tpidr_gl2_shadow_status() == {
++        "enabled": True,
++        "tag_base": 0xb0c0,
++        "shadow": 0xfffffe00070c0000,
++        "reads": 1234,
++        "writes": 2,
++        "forwarded": 17,
++    }
++    assert calls == [
++        (proxy.P_HV_VEL2_TPIDR_GL2_QUERY, selector) for selector in range(6)
++    ]
++
++
++def test_tpidr_gl2_fast_shadow_rejects_unknown_status_selector():
++    proxy, _ = proxy_with_replies({6: 0xffffffffffffffff})
++    with pytest.raises(ValueError):
++        proxy._hv_vel2_tpidr_gl2_query(6)
++
++
++def test_step_filter_enable_status_and_disable():
++    reply = {
++        0: 1, 1: 1, 2: 123, 3: 0x1004, 4: 0x2008,
++        5: 0x2004, 6: 100, 7: 23, 8: 2, 9: 0x3000, 10: 4096,
++        11: 0x1000, 12: 0x1100, 13: 0x2000, 14: 0x2100,
++        15: 0x1004,
++    }
++    proxy, calls = proxy_with_replies(reply)
++    proxy.hv_vel2_step_filter_enable(
++        0x1000, 0x1100, 0x2000, 0x2100, 0x3000, 4096, 0x1004)
++    assert proxy.hv_vel2_step_filter_status() == {
++        "active": True, "status": 1, "steps": 123,
++        "first_pc": 0x1004, "last_pc": 0x2008,
++        "previous_pc": 0x2004, "range0_hits": 100,
++        "range1_hits": 23, "range_switches": 2,
++        "terminal_pc": 0x3000, "max_steps": 4096,
++        "range0_start": 0x1000, "range0_end": 0x1100,
++        "range1_start": 0x2000, "range1_end": 0x2100,
++        "expected_first_pc": 0x1004,
++    }
++    proxy.hv_vel2_step_filter_disable()
++    assert calls[0] == (
++        proxy.P_HV_VEL2_STEP_FILTER_CONFIG,
++        0x1000, 0x1100, 0x2000, 0x2100, 0x3000, 4096)
++    assert calls[1] == (proxy.P_HV_VEL2_STEP_FILTER_EXPECT, 0x1004)
++    assert calls[2:18] == [
++        (proxy.P_HV_VEL2_STEP_FILTER_QUERY, selector)
++        for selector in range(16)]
++    assert calls[18] == (
++        proxy.P_HV_VEL2_STEP_FILTER_CONFIG, 0, 0, 0, 0, 0, 0)

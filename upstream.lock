@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/AsahiLinux/m1n1.git",
+  "commit": "940439b9a407fbfc499bea933269219f3f62d4c7",
+  "files": {
+    "proxyclient/m1n1/proxyutils.py": "d347597c8c455570579215a0086ad4838d13a72a7b2f1383e3a33dde7276559d",
+    "proxyclient/m1n1/tgtypes.py": "581a9e270803dd31465a255ecff1885af81adf23f8eb43c1a5cf6da78f2d82ce",
+    "proxyclient/m1n1/hv/__init__.py": "5fd8b93586ef7753697987fe378a5d3db6069af869327e9fdb3b846ec0f36e11",
+    "proxyclient/tools/run_guest.py": "443dda8e43ecdbf5fda2ee67e9878d77dbcc5367fe0c1bbcb2c3c6adf8fa7fef",
+    "src/firmware.c": "b9535e1d075ab6d075fed28c8325e4951fb8953823d1917dc04860d660d1f831",
+    "proxyclient/m1n1/guest_boot.py": "9cf02bd87035b87ace1286544cb2f5986e98296c208f6ceac800365d38aa910c"
+  },
+  "base_files": {
+    "proxyclient/m1n1/proxyutils.py": "d347597c8c455570579215a0086ad4838d13a72a7b2f1383e3a33dde7276559d",
+    "proxyclient/m1n1/tgtypes.py": "581a9e270803dd31465a255ecff1885af81adf23f8eb43c1a5cf6da78f2d82ce",
+    "proxyclient/m1n1/hv/__init__.py": "071fb88638b66ac030c1eaf84f5dfdbf19733cb5ad547a8a09355b6e1af33fa0",
+    "proxyclient/tools/run_guest.py": "9cc718e1896014dfd17f899053a55d4fc0f16fa917ccb1cf498f516d1d07dd88",
+    "src/firmware.c": "b9535e1d075ab6d075fed28c8325e4951fb8953823d1917dc04860d660d1f831"
+  },
+  "patches": {
+    "patches/m1n1/0001-validate-guest-setup-and-report-stages.patch": "940fe666b6dba8bd9fcef4a73837c727f8e60d8c1b19f95443368f9718fe35f5"
+  }
+}

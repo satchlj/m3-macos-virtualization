@@ -1,0 +1,172 @@
+diff --git a/proxyclient/m1n1/hv/__init__.py b/proxyclient/m1n1/hv/__init__.py
+index 5978593..4b83a5a 100644
+--- a/proxyclient/m1n1/hv/__init__.py
++++ b/proxyclient/m1n1/hv/__init__.py
+@@ -4,6 +4,7 @@ from construct import *
+ 
+ from ..asm import ARMAsm
+ from ..tgtypes import *
++from ..guest_boot import bootargs_serializer
+ from ..proxy import IODEV, START, EVENT, EXC, EXC_RET, ExcInfo
+ from ..utils import *
+ from ..sysreg import *
+@@ -937,6 +938,9 @@ class HV(Reloadable):
+             self._info_data = new_info
+ 
+     def handle_exception(self, reason, code, info):
++        if self.started and not getattr(self, "_guest_event_seen", False):
++            print("GUEST-STAGE first-event", flush=True)
++            self._guest_event_seen = True
+         self.exc_info = info
+         self.exc_reason = reason
+         if reason in (START.EXCEPTION_LOWER, START.EXCEPTION):
+@@ -1360,6 +1364,8 @@ class HV(Reloadable):
+         self.iface.tty_log = fd
+ 
+     def init(self):
++        bootargs_serializer(self.u.ba, {1: BootArgs_r1, 2: BootArgs_r2, 3: BootArgs_r3})
++        print("GUEST-STAGE hv-init-begin", flush=True)
+         self.adt = load_adt(self.u.get_adt())
+         self.iodev = self.p.iodev_whoami()
+         self.tba = self.u.ba.copy()
+@@ -1374,6 +1380,7 @@ class HV(Reloadable):
+ 
+         print("Initializing hypervisor over iodev %s" % self.iodev)
+         self.p.hv_init()
++        print("GUEST-STAGE hv-init-returned", flush=True)
+ 
+         self.iface.set_handler(START.EXCEPTION_LOWER, EXC.SYNC, self.handle_exception)
+         self.iface.set_handler(START.EXCEPTION_LOWER, EXC.IRQ, self.handle_exception)
+@@ -1696,6 +1703,7 @@ class HV(Reloadable):
+ 
+ 
+     def load_raw(self, image, entryoffset=0x800, use_xnu_symbols=False, vmin=0):
++        serializer = bootargs_serializer(self.tba, {1: BootArgs_r1, 2: BootArgs_r2, 3: BootArgs_r3})
+         sepfw_start, sepfw_length = self.u.adt["chosen"]["memory-map"].SEPFW
+         tc_start, tc_size = self.u.adt["chosen"]["memory-map"].TrustCache
+         if hasattr(self.u.adt["chosen"]["memory-map"], "preoslog"):
+@@ -1790,12 +1798,8 @@ class HV(Reloadable):
+         if use_xnu_symbols == True:
+             self.sym_offset = vmin - guest_base + self.tba.phys_base - self.tba.virt_base
+ 
+-        if self.tba.revision <= 1:
+-            self.iface.writemem(guest_base + self.bootargs_off, BootArgs_r1.build(self.tba))
+-        elif self.tba.revision == 2:
+-            self.iface.writemem(guest_base + self.bootargs_off, BootArgs_r2.build(self.tba))
+-        elif self.tba.revision == 3:
+-            self.iface.writemem(guest_base + self.bootargs_off, BootArgs_r3.build(self.tba))
++        self.iface.writemem(guest_base + self.bootargs_off, serializer.build(self.tba))
++        print("GUEST-STAGE bootargs-uploaded", flush=True)
+ 
+         if self.u.cpu_features.apple_sysregs_unlocked:
+             print("Setting secondary CPU RVBARs...")
+@@ -1964,6 +1968,7 @@ class HV(Reloadable):
+         exec(code, self.shell_locals)
+ 
+     def start(self):
++        self._guest_event_seen = False
+         print("Disabling other iodevs...")
+         for iodev in IODEV:
+             if iodev != self.iodev:
+@@ -2011,6 +2016,7 @@ class HV(Reloadable):
+                 break
+         self.started_cpus[cpu_node.cpu_id] = (getattr(cpu_node, "die_id", 0), cpu_node.cluster_id, cpu_node.cpu_id)
+         self.sysreg[cpu_node.cpu_id] = {}
++        print("GUEST-STAGE entry-request", flush=True)
+         self.p.hv_start(self.entry, self.guest_base + self.bootargs_off)
+ 
+ from .. import trace
+diff --git a/proxyclient/tools/run_guest.py b/proxyclient/tools/run_guest.py
+index eb42a82..35adf37 100755
+--- a/proxyclient/tools/run_guest.py
++++ b/proxyclient/tools/run_guest.py
+@@ -17,7 +17,8 @@ parser.add_argument('-S', '--shell', action="store_true")
+ parser.add_argument('-e', '--hook-exceptions', action="store_true")
+ parser.add_argument('-d', '--debug-xnu', action="store_true")
+ parser.add_argument('-l', '--logfile', type=pathlib.Path)
+-parser.add_argument('-C', '--cpus', default=None)
++parser.add_argument('-C', '--cpus', default=None, help='Legacy digits (012) or comma-separated CPU IDs (0,10)')
++parser.add_argument('--single-core', action='store_true', help='Retain only the observed running boot CPU')
+ parser.add_argument('--strip-node', action="append", default=[], metavar='SUBSTR',
+                     help='Remove every ADT node whose name contains SUBSTR.')
+ parser.add_argument('-r', '--raw', action="store_true")
+@@ -39,12 +40,18 @@ from m1n1.sysreg import *
+ from m1n1.hv import HV
+ from m1n1.hv.virtio import Virtio9PTransport
+ from m1n1.hw.pmu import PMU
++from m1n1.guest_boot import bootargs_serializer, select_guest_cpus
++from m1n1.tgtypes import BootArgs_r1, BootArgs_r2, BootArgs_r3
+ 
+ iface = UartInterface()
+ p = M1N1Proxy(iface, debug=False)
+ bootstrap_port(iface, p)
+ u = ProxyUtils(p, heap_size = 128 * 1024 * 1024)
+ 
++bootargs_serializer(u.ba, {1: BootArgs_r1, 2: BootArgs_r2, 3: BootArgs_r3})
++wanted_cpus = select_guest_cpus(u.adt["/cpus"], args.cpus, args.single_core)
++print("GUEST-STAGE preflight-passed", flush=True)
++
+ # Setup counter redirect / AHCR_EL2 as expected by macOS for macho payloads
+ if not args.raw:
+     chip_id = u.adt["/chosen"].chip_id
+@@ -58,9 +65,9 @@ hv.hook_exceptions = args.hook_exceptions
+ 
+ hv.init()
+ 
+-if args.cpus:
++if wanted_cpus is not None:
+     avail = [i.name for i in hv.adt["/cpus"]]
+-    want = set(f"cpu{i}" for i in args.cpus)
++    want = wanted_cpus
+     for cpu in avail:
+         if cpu in want:
+             continue
+@@ -115,6 +122,8 @@ if args.raw:
+ else:
+     hv.load_macho(payload, symfile=symfile)
+ 
++print("GUEST-STAGE image-loaded", flush=True)
++
+ PMU(u).reset_panic_counter()
+ 
+ for i in args.script:
+diff --git a/proxyclient/m1n1/guest_boot.py b/proxyclient/m1n1/guest_boot.py
+new file mode 100644
+index 0000000..6ccd2a7
+--- /dev/null
++++ b/proxyclient/m1n1/guest_boot.py
+@@ -0,0 +1,34 @@
++# SPDX-License-Identifier: MIT
++"""Guest setup validation; helpers perform no device I/O."""
++def bootargs_serializer(bootargs, serializers):
++    revision = bootargs.revision
++    if not isinstance(revision, int) or isinstance(revision, bool) or revision not in serializers:
++        raise ValueError(f"Unsupported guest bootargs revision {revision!r}; refusing guest setup")
++    serializer = serializers[revision]
++    # Validate the current structure before any guest memory/map changes.
++    serializer.build(bootargs)
++    return serializer
++
++
++def select_guest_cpus(nodes, spec=None, single_core=False):
++    if spec is None and not single_core:
++        return None
++    if spec is not None and single_core:
++        raise ValueError("Choose either --cpus or --single-core")
++    nodes = list(nodes)
++    running = [node.name for node in nodes if node.state == 'running']
++    if len(running) != 1:
++        raise ValueError("CPU selection requires exactly one observed running boot CPU")
++    if single_core:
++        return {running[0]}
++    # Preserve legacy -C 012; comma-delimited form supports multi-digit IDs.
++    ids = spec.split(',') if ',' in spec else list(spec)
++    if not ids or any(not value or not value.isascii() or not value.isdecimal() for value in ids):
++        raise ValueError("Invalid CPU selector; use legacy digits or comma-separated IDs")
++    wanted = {f'cpu{int(value)}' for value in ids}
++    available = {node.name for node in nodes}
++    if not wanted <= available:
++        raise ValueError("CPU selector contains CPUs absent from the device tree")
++    if running[0] not in wanted:
++        raise ValueError("CPU selection must retain the running boot CPU")
++    return wanted

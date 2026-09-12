@@ -1,0 +1,40 @@
+{
+  "checked_at": "2026-09-09T15:34:06.837354+00:00",
+  "repository": "https://github.com/AsahiLinux/m1n1.git",
+  "refs": {
+    "refs/heads/main": "940439b9a407fbfc499bea933269219f3f62d4c7",
+    "refs/heads/hv-sprr": "1c98fd09817cede0043d25c95fb540dbd683ef18",
+    "refs/heads/gxf-stack": "547999297df9d485f5ebaf3ee4dd67f83ed0f11f",
+    "refs/heads/lina/gpu-wip": "11163540ee025d996f4adf45a40b91d6290ec605",
+    "refs/pull/622/head": "ce1c1574757e19acc44fdd28fa49c7a500a23210"
+  },
+  "loader_pin_matches_main": true,
+  "experimental_pin_matches_hv_sprr": true,
+  "gxf_source_matches_stack_branch": true,
+  "gpu_tracer_changes_main_to_gpu_wip": false,
+  "all_head_refs": [
+    "agents 7724fd6769cd939b379952bea3bf5296e774ccf4",
+    "atcphy-new-tunables 9657a52e9183d09563fb57396fb36342d7b263d1",
+    "chickens 4bf21ac48c16c1dd0fd7d7cd318371af632517f4",
+    "darwin e19e74be8b7d5f3643cbb4237ee6b8ba2a7d8578",
+    "dcp-clusterfuck 3f6e1fe028226cd77b7bd9d338f93a5e3e1c3b28",
+    "dcp/m2pro-iboot-lightup cc7acfb65c303396def1d4552ffb57c6ab09ec63",
+    "dockchannel-hacks b2e7921624421f01a9b4db5dabc35423067d91f4",
+    "gxf-stack 547999297df9d485f5ebaf3ee4dd67f83ed0f11f",
+    "hv-sprr 1c98fd09817cede0043d25c95fb540dbd683ef18",
+    "isp/heap-alloc bd59007f50e037d4e0ad579d4b2d2fce86117344",
+    "isp/t602x 2a284d694f451ff5c24ad3433c6008d8f58b8ec4",
+    "isp/t602x-b db379acf49787affe761311d4c4c3cc906326bbd",
+    "kboot-fw 7e5b734ae765a6e27edbb0ee200e0ecde60e8183",
+    "kboot-tbt-aliases ab7f9b0d313cf14e343ba68a5d9dfc390315607b",
+    "lina/gpu-wip 11163540ee025d996f4adf45a40b91d6290ec605",
+    "lina/omg-it-works 2824478dfec20a8a5f2231693d2820647d571803",
+    "main 940439b9a407fbfc499bea933269219f3f62d4c7",
+    "psci-via-efi d30913b713a4c0e86935f8a9919ec099d495929b",
+    "releases/1.5.1 e266c09ee50971828c6a7ba02bb7f36a24a7692e",
+    "t602x/bringup 44e70e2f3e93c02e0fc977467f0befa8e8ba6e8b",
+    "tbt 3e781e2d2582c0c05d70a243d5fb40ad9e253d81"
+  ],
+  "pr622_sptm_notice": "# SPTM Emulator\n\nThis directory is tainted bringup code. Keep reverse-engineered SPTM endpoint\nbehavior here while the generic hypervisor and loader plumbing stay separate.\n\nThe emulator is linked into the streamed stage2 image when `SPTM_EMUL=1`; the\nstage1 boot object does not include it.",
+  "scope": "Public advertised upstream branches and PR 622, not all forks or unpublished work. No target execution or upstream patches applied."
+}

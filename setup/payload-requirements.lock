@@ -1,0 +1,8 @@
+apple-compress==0.2.3
+asn1==2.8.0
+click==8.1.8
+enum-compat==0.0.3
+loguru==0.7.3
+pycryptodome==3.23.0
+pyimg4==0.8.8
+pylzss==0.3.4
