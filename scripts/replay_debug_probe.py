@@ -159,6 +159,9 @@ class CallbackReplay:
                           and n.name == 'match_xnu_socd_trace')
         guard = next(n for n in main.body if isinstance(n, ast.FunctionDef) and n.name == 'pause_guard')
         gxf_report = next(n for n in main.body if isinstance(n, ast.FunctionDef) and n.name == 'gxf_report')
+        phase53_hvc_target_match = next(
+            n for n in main.body if isinstance(n, ast.FunctionDef)
+            and n.name == 'phase53_hvc_target_bytes_match')
         namespace = dict(vars(sysreg), batch=None, trace_count=trace_count, append_event=append_event, START=START, EXC=EXC, EXC_RET=EXC_RET, ExcInfo=ExcInfo,
                          UnsupportedGuestDebug=UnsupportedGuestDebug, HV=HV,
                          PpermWindowLimit=type('PpermWindowLimit',(Exception,),{}),
@@ -185,6 +188,7 @@ class CallbackReplay:
                                            xnu_pperm_guest_window_limit=1,
                                            xnu_apple_physical_timer_hypothesis=False,
                                            xnu_tpidr_gl2_fast_shadow=False,
+                                           xnu_gl1_fast_redirect=False,
                                            xnu_txm_context_entry_one_step=False,
                                            xnu_txm_context_entry_register_prefix=False,
                                            xnu_txm_context_stack_claim_one_step=False,
@@ -194,6 +198,7 @@ class CallbackReplay:
                                            xnu_txm_handler_boundary=None,
                                            xnu_phase53_retype_survey=False,
                                            xnu_phase53_retype_survey_limit=64,
+                                           xnu_phase53_retype_hvc_fast_path=False,
                                            xnu_phase53_descriptor_bind=False,
                                            xnu_phase53_leaf_page_bind=False,
                                            on_demand_stage2=0,
@@ -206,6 +211,7 @@ class CallbackReplay:
                          txm_validator_trace_state=dict(active=False),
                          phase53_allocation_trace_state=dict(active=False),
                          phase53_retype_survey_state=dict(active=False),
+                         phase53_retype_hvc_state=dict(active=False),
                          phase53_descriptor_bind_state=dict(active=False),
                          dockchannel_mmio=None,
                          panic_carveout=None,
@@ -213,7 +219,8 @@ class CallbackReplay:
                          xnu_agt_state=dict(previous=None, writes=0), layout={}, sources={},
                          xnu_cntp_ctl_state=dict(previous=None, writes=0),
                          xnu_apple_timer_state=dict(previous=None, writes=0),
-                         xnu_pperm_state=dict(previous=None, step=0, modified=False,
+                         xnu_pperm_state=dict(previous=None, step=0,
+                                                window_type=None, modified=False,
                                                 started=0, completed=0),
                          multi_call_selectors=None, gc_state={'index': 0, 'in_call': False, 'started': 0},
                          exception_registers={'ESR_EL12': sysreg.ESR_EL12, 'ELR_EL12': sysreg.ELR_EL12,
@@ -236,7 +243,9 @@ class CallbackReplay:
         rewrite = next(n for n in main.body if isinstance(n, ast.FunctionDef) and n.name == 'patch_probe_code')
         # Its local relative import needs the already loaded module, without HV.__init__.
         sys.modules.setdefault('m1n1.hv.vel2', vel2)
-        exec(compile(ast.Module(body=assignments+[rewrite, dockchannel_match, panic_match, socd_match, gxf_report, guard], type_ignores=[]),
+        exec(compile(ast.Module(body=assignments+[rewrite, dockchannel_match,
+                     panic_match, socd_match, gxf_report,
+                     phase53_hvc_target_match, guard], type_ignores=[]),
                      str(REPO/'scripts/sptm_probe/runtime.py'), 'exec'), namespace)
         namespace['tpidr_gl2_register'] = sysreg.sysreg_fwd['TPIDR_GL2']
         namespace['tpidr_gl2_shadow_tag_base'] = (

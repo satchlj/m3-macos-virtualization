@@ -13,11 +13,11 @@ modules. Files in this package are implementation modules, not new commands.
 | [cli.py](cli.py) | Existing argument parsing, validation, signal handling, and attempt finalization |
 | [runtime.py](runtime.py) | Existing setup, source loading, execution lifecycle, and cleanup |
 | [constants.py](constants.py) | Pinned names, addresses, and source/byte contracts |
-| [adapters.py](adapters.py) | Firmware adapter interfaces and teardown auditing |
+| [adapters.py](adapters.py) | Firmware adapter interfaces, GL1 redirect, and teardown auditing |
 | [platform.py](platform.py) | Platform contracts, compatibility transforms, and restore helpers |
 | [callback.py](callback.py) | Ordered event dispatch, exception handling, and callback finalization |
 | [events/allocation.py](events/allocation.py) | Allocation-trace and authenticated-return branches |
-| [events/retype.py](events/retype.py) | Retype-survey branches |
+| [events/retype.py](events/retype.py) | Retype-survey and three-site HVC branches |
 | [events/descriptor.py](events/descriptor.py) | Descriptor and leaf binding branches |
 | [events/txm_trace.py](events/txm_trace.py) | TXM trace and debug-gate branches |
 | [events/txm_step.py](events/txm_step.py) | Bounded TXM context-step branch |

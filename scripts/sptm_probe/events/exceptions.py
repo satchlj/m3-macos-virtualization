@@ -4,6 +4,124 @@
 """Exceptions event handlers extracted from the original probe callback."""
 from . import handoff
 
+
+def _phase53_hvc_eret(run, event_state):
+    state = run.phase53_retype_hvc_state
+    owner = bool(state.get('active') and
+                 state.get('mode') == 'three-site-hvc' and
+                 state.get('patches_live'))
+    candidate = bool(owner and state.get('stage') in
+                     ('hvc-pre', 'hvc-genter', 'hvc-post'))
+    if owner and not candidate:
+        state['active'] = False
+        state['failed'] = True
+        run.report['xnu_phase53_retype_hvc_fast_path'].update(
+            failed=True, native_continuation_invalid_stage=state.get('stage'))
+        run.report['stop_reason'] = 'phase53-retype-hvc-native-continuation-stage-rejected'
+        return owner, False
+    if not candidate:
+        return owner, False
+
+    continuations = state['native_continuations']
+    source_pc = event_state.ctx.elr - 4
+    source_offset = source_pc - run.FC_IMAGE_BASE
+    source_eret = (run.sources.get('sptm', b'')[source_offset:source_offset + 4]
+                   if 0 <= source_offset <= len(run.sources.get('sptm', b'')) - 4
+                   else b'')
+    target_range = ({'txm': run.FC_TXM_RUNTIME_TEXT,
+                     'kernelcache': run.FC_XNU_RUNTIME_TEXT}.get(
+                         event_state.handoff.get('image'))
+                    if event_state.classification_ok else None)
+    signature = (hex(event_state.ctx.elr), hex(event_state.elr_gl1),
+                 hex(event_state.spsr_gl1))
+    machine_before = (state['machine'].snapshot()
+                      if state.get('machine') is not None else None)
+    transition = dict(
+        index=len(continuations), stage=state['stage'],
+        trap_pc=hex(event_state.ctx.elr), source_pc=hex(source_pc),
+        target_pc=hex(event_state.elr_gl1),
+        target_spsr=hex(event_state.spsr_gl1),
+        target_image=event_state.handoff.get('image'),
+        target_segment=event_state.handoff.get('segment'),
+        target_linked_pc=event_state.handoff.get('linked_pc'),
+        translation_roots={name: hex(value) for name, value in
+                           event_state.roots.items()})
+    checks = {
+        'classified': event_state.classification_ok,
+        'state_active': state.get('active') is True,
+        'patches_live': state.get('patches_live') is True,
+        'exact_esr': int(event_state.ctx.esr) == 0x5a004800,
+        'native_sptm_callback': event_state.native_sptm_callback,
+        'stage_waiting_for_hvc': state.get('stage') in
+            ('hvc-pre', 'hvc-genter', 'hvc-post'),
+        'machine_present': machine_before is not None,
+        'machine_phase_matches_stage': (
+            machine_before is not None and
+            machine_before.get('expected_phase') == {
+                'hvc-pre': 'PRE', 'hvc-genter': 'GENTER',
+                'hvc-post': 'POST'}[state.get('stage')]),
+        'trap_in_sptm_text': run.FC_SPTM_RUNTIME_TEXT[0] <=
+            event_state.ctx.elr < run.FC_SPTM_RUNTIME_TEXT[1],
+        'source_eret': source_eret == run.struct.pack(
+            '<I', run.FC_XNU_TXM_CONTEXT_ERET_WORD),
+        'target_world': target_range is not None,
+        'target_segment': event_state.handoff.get('segment') in
+            ('__TEXT_EXEC', '__TEXT_BOOT_EXEC'),
+        'target_source_match': run.phase53_hvc_target_bytes_match(
+            event_state.handoff),
+        'target_pc_in_range': target_range is not None and
+            target_range[0] <= event_state.elr_gl1 < target_range[1],
+        'target_mode': (event_state.spsr_gl1 & 15) in (0, 4, 5),
+        'caller_el1h': (int(event_state.ctx.spsr) & 15) == 5,
+        'saved_ss_clear': not bool(int(event_state.ctx.spsr) & (1 << 21)),
+        'physical_ss_clear': not bool(int(run.u.mrs(run.MDSCR_EL1)) & 1),
+        'translation_roots_stable': (
+            int(run.u.mrs(run.TTBR0_EL12)) == state['roots']['ttbr0'] and
+            int(run.u.mrs(run.TTBR1_EL12)) == state['roots']['ttbr1']),
+        'gl1_activation_owned': state.get('gl1_activation_verified') is True,
+        'step_filter_disabled_owned': state.get('filter_disabled') is True,
+        'continuation_budget': len(continuations) < state['continuation_limit'],
+        'repetition_budget': sum(
+            (item.get('trap_pc'), item.get('target_pc'), item.get('target_spsr')) ==
+            signature for item in continuations) <
+            state['repeated_continuation_limit'],
+    }
+    try:
+        checks['machine_unchanged'] = (
+            machine_before is not None and state['machine'].snapshot() == machine_before)
+        transition.update(
+            source_hex=source_eret.hex(),
+            target_bytes_hex=event_state.handoff.get('bytes_hex'),
+            machine_before=machine_before,
+            machine_after=(state['machine'].snapshot()
+                           if state.get('machine') is not None else None),
+            resume_mode='native-ss-clear-filter-off')
+    except Exception as transition_error:
+        checks['gate_readback'] = False
+        transition['error'] = str(transition_error)
+    transition.update(checks=checks, complete=all(checks.values()))
+    if not checks['continuation_budget']:
+        run.report['xnu_phase53_retype_hvc_fast_path'].update(
+            native_continuation_limit_reached=True,
+            native_continuations=list(continuations),
+            native_continuation_limit=state['continuation_limit'])
+        run.report['stop_reason'] = 'phase53-retype-hvc-native-continuation-limit-reached'
+    elif transition['complete']:
+        continuations.append(transition)
+        run.report['xnu_phase53_retype_hvc_fast_path'].update(
+            native_continuations=list(continuations),
+            native_continuation_count=len(continuations),
+            native_continuation_limit=state['continuation_limit'])
+        return owner, True
+    else:
+        state['active'] = False
+        state['failed'] = True
+        run.report['xnu_phase53_retype_hvc_fast_path'].update(
+            failed=True, native_continuation_rejection=transition,
+            native_continuations=list(continuations))
+        run.report['stop_reason'] = 'phase53-retype-hvc-world-transition-gate-rejected'
+    return owner, False
+
 def handle_exception(run, event_state):
     event_state.ctx = run.iface.readstruct(event_state.info, run.ExcInfo)
     event_state.esr = int(event_state.ctx.esr)
@@ -108,6 +226,8 @@ def handle_exception(run, event_state):
             event_state.entry_launch = event_state.classification_ok and event_state.handoff['entry_matches'] and event_state.handoff['bytes_match'] and (event_state.spsr_gl1 == 5056) and (event_state.handoff['image'] in ('txm', 'kernelcache'))
             event_state.txm_return = event_state.classification_ok and run.a.native_handoff and (event_state.handoff['image'] == 'txm') and (event_state.entry_launch or (event_state.handoff['segment'] in ('__TEXT_EXEC', '__TEXT_BOOT_EXEC') and run.report.get('handoff', {}).get('image') == 'txm' and (event_state.ctx.elr == 18446741874804412124) and (event_state.handoff['linked_pc'] in run.TXM_WORLD_RETURN_LINKED) and (len(run.report.get('txm_world_returns', [])) < 128) and (sum((previous['linked_pc'] == event_state.handoff['linked_pc'] for previous in run.report.get('txm_world_returns', []))) < 64) and event_state.handoff['bytes_match'] and event_state.handoff['bytes_hex'].startswith('ff0f5fd6') and (0 <= event_state.spsr_gl1 < 1 << 32) and (event_state.spsr_gl1 & ~4026531840 == 5056)))
             event_state.phase53_eret_candidate = bool(run.phase53_allocation_trace_state.get('active') or run.phase53_descriptor_bind_state.get('active') or run.phase53_retype_survey_state.get('active'))
+            (event_state.phase53_hvc_eret_owner,
+             event_state.phase53_hvc_eret) = _phase53_hvc_eret(run, event_state)
             event_state.phase53_eret = False
             if event_state.phase53_eret_candidate:
                 event_state.phase53_filter_state = run.phase53_descriptor_bind_state if run.phase53_descriptor_bind_state.get('active') else run.phase53_retype_survey_state if run.phase53_retype_survey_state.get('active') else run.phase53_allocation_trace_state
@@ -151,7 +271,7 @@ def handle_exception(run, event_state):
                     run.report[event_state.phase53_report_key]['world_transition_rejection'] = event_state.transition
                     run.report['stop_reason'] = 'phase53-world-transition-gate-rejected'
             event_state.txm_context_step = False
-            if event_state.classification_ok and (run.a.xnu_txm_context_entry_one_step or run.a.xnu_txm_context_entry_register_prefix or run.a.xnu_txm_context_stack_claim_one_step or run.a.xnu_txm_context_stack_metadata_init or run.a.xnu_txm_context_x18_branch_one_step or run.a.xnu_txm_context_outbound_branch_one_step or (run.a.xnu_txm_handler_boundary is not None)) and (event_state.ctx.elr == run.FC_XNU_TXM_CONTEXT_ERET_PC) and (not event_state.entry_launch) and (not event_state.txm_return) and (not event_state.phase53_eret_candidate):
+            if event_state.classification_ok and (run.a.xnu_txm_context_entry_one_step or run.a.xnu_txm_context_entry_register_prefix or run.a.xnu_txm_context_stack_claim_one_step or run.a.xnu_txm_context_stack_metadata_init or run.a.xnu_txm_context_x18_branch_one_step or run.a.xnu_txm_context_outbound_branch_one_step or (run.a.xnu_txm_handler_boundary is not None)) and (event_state.ctx.elr == run.FC_XNU_TXM_CONTEXT_ERET_PC) and (not event_state.entry_launch) and (not event_state.txm_return) and (not event_state.phase53_eret_candidate) and (not event_state.phase53_hvc_eret_owner):
 
                 def owned_page(pa):
                     if pa & run.PAGE - 1 or not run.base <= pa < pa + run.PAGE <= run.base + run.guest_size:
@@ -298,18 +418,20 @@ def handle_exception(run, event_state):
                     event_state.classification['decision'] = 'txm-handler-' + event_state.handler_boundary if event_state.handler_boundary is not None else 'txm-context-outbound-branch-one-step' if event_state.outbound else 'txm-context-x18-branch-one-step' if event_state.x18_branch else 'txm-context-stack-metadata-init' if event_state.metadata else 'txm-context-stack-claim' if event_state.claim else 'txm-context-register-prefix' if event_state.prefix else 'txm-context-one-step'
                 else:
                     run.report['stop_reason'] = 'txm-context-entry-gate-rejected'
-            if event_state.completion_eret:
+            if event_state.phase53_hvc_eret:
+                event_state.classification['decision'] = 'phase53-retype-hvc-native-continuation'
+            elif event_state.completion_eret and not event_state.phase53_hvc_eret_owner:
                 event_state.classification['decision'] = 'cmd1-completion-eret'
                 run.report['xnu_txm_sstep_fast_path']['completion_eret'] = dict(trap_pc=hex(event_state.ctx.elr), target_pc=hex(event_state.elr_gl1), target_spsr=hex(event_state.spsr_gl1), guarded_esr=hex(event_state.completion_guarded_esr), guarded_aspsr=hex(event_state.completion_guarded_aspsr), status=event_state.completion_fast_status, checks_passed=True)
                 run.report['stop_reason'] = 'cmd1-completion-eret'
             elif event_state.phase53_eret:
                 event_state.classification['decision'] = 'phase53-world-transition'
                 run.report['stop_reason'] = 'phase53-world-transition'
-            elif event_state.entry_launch:
+            elif event_state.entry_launch and not event_state.phase53_hvc_eret_owner:
                 event_state.classification['decision'] = 'entry-launch'
                 run.report['handoff'] = event_state.eret_record
                 run.report['stop_reason'] = 'handoff-' + ('xnu' if event_state.handoff['image'] == 'kernelcache' else 'txm') + '-entry'
-            elif event_state.txm_return:
+            elif event_state.txm_return and not event_state.phase53_hvc_eret_owner:
                 event_state.classification['decision'] = 'txm-world-return'
                 run.report.setdefault('txm_world_returns', []).append(event_state.eret_record)
                 run.report['stop_reason'] = 'txm-world-return'
@@ -388,7 +510,16 @@ def handle_exception(run, event_state):
                 run.iface.writemem(event_state.info, run.ExcInfo.build(event_state.ctx))
                 run.report.pop('stop_reason', None)
                 event_state.ret = run.EXC_RET.HANDLED
-            elif event_state.completion_eret:
+            elif event_state.phase53_hvc_eret:
+                event_state.ctx.elr = event_state.elr_gl1
+                event_state.ctx.spsr = type(event_state.ctx.spsr)(event_state.spsr_gl1)
+                event_state.ctx.spsr.SS = 0
+                run.u.msr(run.MDSCR_EL1, run.u.mrs(run.MDSCR_EL1) & ~1)
+                run.iface.writemem(event_state.info, run.ExcInfo.build(event_state.ctx))
+                run.report.pop('stop_reason', None)
+                event_state.event['kind'] = 'phase53-retype-hvc-native-continuation'
+                event_state.ret = run.EXC_RET.HANDLED
+            elif event_state.completion_eret and not event_state.phase53_hvc_eret_owner:
                 event_state.ctx.elr = event_state.elr_gl1
                 event_state.ctx.spsr = type(event_state.ctx.spsr)(event_state.spsr_gl1)
                 event_state.ctx.spsr.SS = 1
@@ -405,7 +536,8 @@ def handle_exception(run, event_state):
                 run.report.pop('stop_reason', None)
                 event_state.event['kind'] = 'phase53-world-transition'
                 event_state.ret = run.EXC_RET.HANDLED
-            elif event_state.entry_launch or event_state.txm_return:
+            elif ((event_state.entry_launch or event_state.txm_return) and
+                  not event_state.phase53_hvc_eret_owner):
                 event_state.resume_txm = event_state.txm_return
                 if run.a.handoff_steps and event_state.entry_launch or event_state.resume_txm:
                     event_state.ctx.elr = event_state.elr_gl1

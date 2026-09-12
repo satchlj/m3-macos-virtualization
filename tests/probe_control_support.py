@@ -134,7 +134,15 @@ class ProbeControlFixture:
         self.tables.memory.write(global_pa, changes.get('handler_global_source', b'\x00'))
         response_pa = response_page_pa + (ns['FC_XNU_TXM_HANDLER_RESPONSE_POINTER'] & ns['PAGE'] - 1)
         self.tables.memory.write(response_pa, struct.pack('<Q', 1311768467463790320))
-        ns['classify_entry'] = lambda *args: dict(image='txm', segment='__TEXT_EXEC', target_pc=hex(target), pa=hex(536870912), linked_pc=ns['FC_XNU_TXM_CONTEXT_LINKED'], entry_matches=False, bytes_match=True, bytes_hex=ns['FC_XNU_TXM_CONTEXT_BYTES'].hex(), instructions_executed=False)
+        classification = changes.get('classification')
+        ns['classify_entry'] = (lambda *args: dict(classification)
+            if classification is not None else dict(
+                image='txm', segment='__TEXT_EXEC', target_pc=hex(target),
+                pa=hex(536870912),
+                linked_pc=ns['FC_XNU_TXM_CONTEXT_LINKED'],
+                entry_matches=False, bytes_match=True,
+                bytes_hex=ns['FC_XNU_TXM_CONTEXT_BYTES'].hex(),
+                instructions_executed=False))
         stack_pa = changes.get('stack_pa', 536887296)
 
         def fake_translate(va, *_):
@@ -569,14 +577,14 @@ class ProbeControlFixture:
         ns['a'].xnu_pperm_guest_window_limit = 1
         runtime_entry = 18446741875424165888
         ns['report']['handoff'] = {'target_pc': hex(runtime_entry)}
-        lo = min((site[0] for site in FC_XNU_PPERM_SITES))
-        hi = max((site[0] for site in FC_XNU_PPERM_SITES)) + 4
+        lo = min((site[2] for site in FC_XNU_PPERM_SITES))
+        hi = max((site[2] for site in FC_XNU_PPERM_SITES)) + 4
         source = bytearray(hi - lo)
-        for pc, word, _, _ in FC_XNU_PPERM_SITES:
+        for _, _, pc, word, _, _ in FC_XNU_PPERM_SITES:
             struct.pack_into('<I', source, pc - lo, word)
         ns['layout'] = {'images': {'kernelcache': {'segments': {'__TEXT_EXEC': {'va': lo, 'fileoff': 0, 'filesize': len(source)}}}}}
         ns['sources'] = {'kernelcache': bytes(source)}
-        ns['report']['xnu_pperm_guest_window'] = {'enabled': True, 'sequence': [], 'memcpy_crossed': False, 'physical_pperm_el1_touched': False, 'started_windows': 0, 'completed_windows': 0, 'memcpy_crossed_windows': 0}
+        ns['report']['xnu_pperm_guest_window'] = {'enabled': True, 'sequence': [], 'memcpy_crossed': False, 'atomic_crossed': False, 'physical_pperm_el1_touched': False, 'started_windows': 0, 'completed_windows': 0, 'memcpy_crossed_windows': 0, 'atomic_crossed_windows': 0}
         ns['HV'].MSR_REDIRECTS[ns['SPRR_PPERM_EL1']] = self.s.SPRR_PPERM_EL12
         original = 2315031809083751142
         writable = original & ~(15 << 8) | 11 << 8
@@ -584,7 +592,7 @@ class ProbeControlFixture:
         return (ns, runtime_entry, original, writable)
 
     def _feed_pperm_hvc(self, ns, runtime_entry, site_index, x8=0):
-        pc, _, tag, _ = FC_XNU_PPERM_SITES[site_index]
+        _, _, pc, _, tag, _ = FC_XNU_PPERM_SITES[site_index]
         event = self.tables.event(22 << 26 | 1 << 25 | tag)
         event.update(pc=runtime_entry + pc - ns['FC_XNU_ENTRY_LINKED'] + 4)
         event['regs'][8] = x8

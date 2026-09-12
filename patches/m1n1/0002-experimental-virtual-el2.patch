@@ -50,10 +50,10 @@ index 0000000..3a6121a
 +        words.append(word)
 +    return b''.join(struct.pack('<I', word) for word in words)
 diff --git a/proxyclient/m1n1/proxy.py b/proxyclient/m1n1/proxy.py
-index 19a0fbd..87cb141 100644
+index 19a0fbd..bcb9883 100644
 --- a/proxyclient/m1n1/proxy.py
 +++ b/proxyclient/m1n1/proxy.py
-@@ -662,6 +662,14 @@ class M1N1Proxy(Reloadable):
+@@ -662,6 +662,16 @@ class M1N1Proxy(Reloadable):
      P_HV_EXIT_CPU = 0xc0f
      P_HV_ADD_TIME = 0xc10
      P_HV_SPRR_SET_ACTIVE = 0xc11
@@ -65,10 +65,12 @@ index 19a0fbd..87cb141 100644
 +    P_HV_VEL2_STEP_FILTER_CONFIG = 0xc17
 +    P_HV_VEL2_STEP_FILTER_QUERY = 0xc18
 +    P_HV_VEL2_STEP_FILTER_EXPECT = 0xc19
++    P_HV_VEL2_GL1_FAST_CONFIG = 0xc1a
++    P_HV_VEL2_GL1_FAST_QUERY = 0xc1b
  
      P_FB_INIT = 0xd00
      P_FB_SHUTDOWN = 0xd01
-@@ -1152,6 +1160,88 @@ class M1N1Proxy(Reloadable):
+@@ -1152,6 +1162,120 @@ class M1N1Proxy(Reloadable):
          return self.request(self.P_HV_EXIT_CPU, cpu)
      def hv_add_time(self, time):
          return self.request(self.P_HV_ADD_TIME, time)
@@ -111,6 +113,38 @@ index 19a0fbd..87cb141 100644
 +
 +    def hv_vel2_tpidr_gl2_shadow_disable(self):
 +        self._hv_vel2_tpidr_gl2_config(False)
++
++    def _hv_vel2_gl1_fast_config(self, enabled, pc_base=0, spsr_tag=0,
++                                  aspsr_tag=0, esr_tag=0, elr_tag=0):
++        result = self.request(self.P_HV_VEL2_GL1_FAST_CONFIG,
++                              int(bool(enabled)), pc_base, spsr_tag,
++                              aspsr_tag, esr_tag, elr_tag)
++        if result != 0:
++            raise RuntimeError("Invalid virtual EL2 GL1 fast-path configuration")
++
++    def _hv_vel2_gl1_fast_query(self, selector):
++        result = self.request(self.P_HV_VEL2_GL1_FAST_QUERY, selector)
++        if result == 0xffffffffffffffff:
++            raise ValueError("Invalid virtual EL2 GL1 fast-path selector")
++        return result
++
++    def hv_vel2_gl1_fast_enable(self, pc_base, tags):
++        self._hv_vel2_gl1_fast_config(True, pc_base, tags["SPSR_GL1"],
++                                      tags["ASPSR_GL1"], tags["ESR_GL1"],
++                                      tags["ELR_GL1"])
++
++    def hv_vel2_gl1_fast_status(self):
++        names = ("enabled", "pc_base", "spsr_tag", "aspsr_tag", "esr_tag",
++                 "elr_tag", "handled", "forwarded", "write_spsr",
++                 "write_elr", "read_aspsr", "write_aspsr", "read_esr",
++                 "read_spsr", "read_elr")
++        result = dict(zip(names, (self._hv_vel2_gl1_fast_query(i)
++                                 for i in range(len(names)))))
++        result["enabled"] = bool(result["enabled"])
++        return result
++
++    def hv_vel2_gl1_fast_disable(self):
++        self._hv_vel2_gl1_fast_config(False)
 +
 +    def _hv_vel2_step_filter_config(self, range0_start=0, range0_end=0,
 +                                    range1_start=0, range1_end=0,
@@ -234,10 +268,10 @@ index 11b931c..beeeca9 100644
  
 diff --git a/src/hv_vel2.c b/src/hv_vel2.c
 new file mode 100644
-index 0000000..6a89c34
+index 0000000..ba9ba66
 --- /dev/null
 +++ b/src/hv_vel2.c
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,473 @@
 +/* SPDX-License-Identifier: MIT */
 +#include "hv_vel2.h"
 +#include "vel2_state.h"
@@ -261,6 +295,35 @@ index 0000000..6a89c34
 +
 +static struct vel2_tpidr_gl2_fast tpidr_gl2_fast[MAX_CPUS];
 +
++enum vel2_gl1_fast_register {
++    GL1_FAST_SPSR,
++    GL1_FAST_ASPSR,
++    GL1_FAST_ESR,
++    GL1_FAST_ELR,
++    GL1_FAST_REGISTER_COUNT,
++};
++
++enum vel2_gl1_fast_site {
++    GL1_FAST_WRITE_SPSR,
++    GL1_FAST_WRITE_ELR,
++    GL1_FAST_READ_ASPSR,
++    GL1_FAST_WRITE_ASPSR,
++    GL1_FAST_READ_ESR,
++    GL1_FAST_READ_SPSR,
++    GL1_FAST_READ_ELR,
++    GL1_FAST_SITE_COUNT,
++};
++
++struct vel2_gl1_fast {
++    bool enabled;
++    u16 tag_base[GL1_FAST_REGISTER_COUNT];
++    u64 pc_base;
++    u64 handled[GL1_FAST_SITE_COUNT];
++    u64 forwarded;
++};
++
++static struct vel2_gl1_fast gl1_fast[MAX_CPUS];
++
 +enum vel2_tpidr_gl2_result {
 +    TPIDR_GL2_DISABLED,
 +    TPIDR_GL2_HANDLED,
@@ -270,6 +333,123 @@ index 0000000..6a89c34
 +static void hv_vel2_tpidr_gl2_reset(void)
 +{
 +    tpidr_gl2_fast[smp_id()] = (struct vel2_tpidr_gl2_fast){};
++}
++
++static void hv_vel2_gl1_fast_reset(void)
++{
++    gl1_fast[smp_id()] = (struct vel2_gl1_fast){};
++}
++
++static u64 hv_vel2_gl1_fast_read(enum vel2_gl1_fast_register reg)
++{
++    switch (reg) {
++        case GL1_FAST_SPSR:
++            return mrs(SYS_IMP_APL_SPSR_GL12);
++        case GL1_FAST_ASPSR:
++            return mrs(SYS_IMP_APL_ASPSR_GL12);
++        case GL1_FAST_ESR:
++            return mrs(SYS_IMP_APL_ESR_GL12);
++        case GL1_FAST_ELR:
++            return mrs(SYS_IMP_APL_ELR_GL12);
++        default:
++            return 0;
++    }
++}
++
++static void hv_vel2_gl1_fast_write(enum vel2_gl1_fast_register reg, u64 value)
++{
++    switch (reg) {
++        case GL1_FAST_SPSR:
++            msr(SYS_IMP_APL_SPSR_GL12, value);
++            break;
++        case GL1_FAST_ASPSR:
++            msr(SYS_IMP_APL_ASPSR_GL12, value);
++            break;
++        case GL1_FAST_ELR:
++            msr(SYS_IMP_APL_ELR_GL12, value);
++            break;
++        default:
++            break;
++    }
++}
++
++static enum vel2_tpidr_gl2_result hv_vel2_gl1_fast_handle(struct exc_info *ctx, u16 imm)
++{
++    struct vel2_gl1_fast *fast = &gl1_fast[smp_id()];
++    if (!fast->enabled)
++        return TPIDR_GL2_DISABLED;
++
++    enum vel2_gl1_fast_register reg;
++    enum vel2_gl1_fast_site site;
++    bool read;
++    u8 imm_low;
++    switch (ctx->elr - fast->pc_base) {
++        case 0xa04f4:
++            reg = GL1_FAST_SPSR;
++            site = GL1_FAST_WRITE_SPSR;
++            read = false;
++            imm_low = 0x0a;
++            break;
++        case 0xa0500:
++            reg = GL1_FAST_ELR;
++            site = GL1_FAST_WRITE_ELR;
++            read = false;
++            imm_low = 0x0c;
++            break;
++        case 0xa0504:
++            reg = GL1_FAST_ASPSR;
++            site = GL1_FAST_READ_ASPSR;
++            read = true;
++            imm_low = 0x29;
++            break;
++        case 0xa050c:
++            reg = GL1_FAST_ASPSR;
++            site = GL1_FAST_WRITE_ASPSR;
++            read = false;
++            imm_low = 0x09;
++            break;
++        case 0xa052c:
++            reg = GL1_FAST_ESR;
++            site = GL1_FAST_READ_ESR;
++            read = true;
++            imm_low = 0x28;
++            break;
++        case 0xa0a94:
++            reg = GL1_FAST_SPSR;
++            site = GL1_FAST_READ_SPSR;
++            read = true;
++            imm_low = 0x2a;
++            break;
++        case 0xa0aa4:
++            reg = GL1_FAST_ELR;
++            site = GL1_FAST_READ_ELR;
++            read = true;
++            imm_low = 0x2a;
++            break;
++        default:
++            for (u32 i = 0; i < GL1_FAST_REGISTER_COUNT; i++) {
++                if ((imm & ~0x3f) == fast->tag_base[i]) {
++                    fast->forwarded++;
++                    return TPIDR_GL2_FORWARD;
++                }
++            }
++            return TPIDR_GL2_DISABLED;
++    }
++
++    if (imm != (fast->tag_base[reg] | imm_low)) {
++        fast->forwarded++;
++        return TPIDR_GL2_FORWARD;
++    }
++
++    u8 rt = imm & 31;
++    if (read) {
++        if (rt != 31)
++            ctx->regs[rt] = hv_vel2_gl1_fast_read(reg);
++    } else {
++        hv_vel2_gl1_fast_write(reg, rt == 31 ? 0 : ctx->regs[rt]);
++    }
++    fast->handled[site]++;
++    return TPIDR_GL2_HANDLED;
 +}
 +
 +static enum vel2_tpidr_gl2_result hv_vel2_tpidr_gl2_handle(struct exc_info *ctx, u16 imm)
@@ -305,6 +485,7 @@ index 0000000..6a89c34
 +{
 +    /* Fast shadows never survive a VEL2 disable or a new VEL2 session. */
 +    hv_vel2_tpidr_gl2_reset();
++    hv_vel2_gl1_fast_reset();
 +    if (enabled && hv_sprr_active)
 +        return -1; /* Combining guarded worlds needs a separate implementation. */
 +    if (states[smp_id()].regs[VE_SCTLR] & 1) {
@@ -324,12 +505,13 @@ index 0000000..6a89c34
 +bool hv_vel2_handle(struct exc_info *ctx, u16 imm)
 +{
 +    enum vel2_tpidr_gl2_result fast = hv_vel2_tpidr_gl2_handle(ctx, imm);
-+    if (fast == TPIDR_GL2_HANDLED) {
++    enum vel2_tpidr_gl2_result gl1 = hv_vel2_gl1_fast_handle(ctx, imm);
++    if (fast == TPIDR_GL2_HANDLED || gl1 == TPIDR_GL2_HANDLED) {
 +        if (step_filters[smp_id()].status == VE_STEP_FILTER_RUNNING)
 +            ctx->spsr |= 1ULL << 21;
 +        return true;
 +    }
-+    if (fast == TPIDR_GL2_FORWARD)
++    if (fast == TPIDR_GL2_FORWARD || gl1 == TPIDR_GL2_FORWARD)
 +        return false;
 +
 +    struct vel2_frame f = {.pc = ctx->elr, .pstate = ctx->spsr, .sp = ctx->sp[1]};
@@ -511,12 +693,64 @@ index 0000000..6a89c34
 +            return UINT64_MAX;
 +    }
 +}
++
++int hv_vel2_gl1_fast_config(bool enabled, u64 pc_base, u64 spsr_tag,
++                            u64 aspsr_tag, u64 esr_tag, u64 elr_tag)
++{
++    hv_vel2_gl1_fast_reset();
++    if (!enabled)
++        return 0;
++    if (!hv_vel2_active() || !pc_base || (pc_base & 0x3fff))
++        return -1;
++
++    u64 tags[] = {spsr_tag, aspsr_tag, esr_tag, elr_tag};
++    for (u32 i = 0; i < GL1_FAST_REGISTER_COUNT; i++) {
++        if (tags[i] > UINT16_MAX || (tags[i] & 0xc03f) != 0x8000)
++            return -1;
++        for (u32 j = 0; j < i; j++) {
++            if (tags[i] == tags[j])
++                return -1;
++        }
++    }
++
++    struct vel2_gl1_fast *fast = &gl1_fast[smp_id()];
++    fast->enabled = true;
++    fast->pc_base = pc_base;
++    for (u32 i = 0; i < GL1_FAST_REGISTER_COUNT; i++)
++        fast->tag_base[i] = tags[i];
++    return 0;
++}
++
++u64 hv_vel2_gl1_fast_query(u64 selector)
++{
++    struct vel2_gl1_fast *fast = &gl1_fast[smp_id()];
++    switch (selector) {
++        case 0:
++            return fast->enabled;
++        case 1:
++            return fast->pc_base;
++        case 2 ... 5:
++            return fast->tag_base[selector - 2];
++        case 6: {
++            u64 total = 0;
++            for (u32 i = 0; i < GL1_FAST_SITE_COUNT; i++)
++                total += fast->handled[i];
++            return total;
++        }
++        case 7:
++            return fast->forwarded;
++        case 8 ... 14:
++            return fast->handled[selector - 8];
++        default:
++            return UINT64_MAX;
++    }
++}
 diff --git a/src/hv_vel2.h b/src/hv_vel2.h
 new file mode 100644
-index 0000000..c9de180
+index 0000000..ce5ac9c
 --- /dev/null
 +++ b/src/hv_vel2.h
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,23 @@
 +/* SPDX-License-Identifier: MIT */
 +#ifndef HV_VEL2_H
 +#define HV_VEL2_H
@@ -536,9 +770,12 @@ index 0000000..c9de180
 +enum vel2_step_filter_result hv_vel2_step_filter_step(struct exc_info *ctx);
 +int hv_vel2_tpidr_gl2_config(bool enabled, u64 tag_base, u64 shadow);
 +u64 hv_vel2_tpidr_gl2_query(u64 selector);
++int hv_vel2_gl1_fast_config(bool enabled, u64 pc_base, u64 spsr_tag,
++                            u64 aspsr_tag, u64 esr_tag, u64 elr_tag);
++u64 hv_vel2_gl1_fast_query(u64 selector);
 +#endif
 diff --git a/src/proxy.c b/src/proxy.c
-index 92d1422..9b4a863 100644
+index 92d1422..6dfb13a 100644
 --- a/src/proxy.c
 +++ b/src/proxy.c
 @@ -11,6 +11,7 @@
@@ -549,7 +786,7 @@ index 92d1422..9b4a863 100644
  #include "iodev.h"
  #include "kboot.h"
  #include "malloc.h"
-@@ -545,9 +546,42 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
+@@ -545,9 +546,50 @@ int proxy_process(ProxyRequest *request, ProxyReply *reply)
              hv_add_time(request->args[0]);
              break;
          case P_HV_SPRR_SET_ACTIVE:
@@ -588,15 +825,23 @@ index 92d1422..9b4a863 100644
 +        case P_HV_VEL2_STEP_FILTER_EXPECT:
 +            reply->retval = hv_vel2_step_filter_expect(request->args[0]);
 +            break;
++        case P_HV_VEL2_GL1_FAST_CONFIG:
++            reply->retval = hv_vel2_gl1_fast_config(
++                request->args[0], request->args[1], request->args[2],
++                request->args[3], request->args[4], request->args[5]);
++            break;
++        case P_HV_VEL2_GL1_FAST_QUERY:
++            reply->retval = hv_vel2_gl1_fast_query(request->args[0]);
++            break;
 +
          case P_FB_INIT:
              fb_init(request->args[0]);
              break;
 diff --git a/src/proxy.h b/src/proxy.h
-index b8796b1..eb30036 100644
+index b8796b1..9d2e7af 100644
 --- a/src/proxy.h
 +++ b/src/proxy.h
-@@ -147,6 +147,14 @@ typedef enum {
+@@ -147,6 +147,16 @@ typedef enum {
      P_HV_EXIT_CPU,
      P_HV_ADD_TIME,
      P_HV_SPRR_SET_ACTIVE,
@@ -608,6 +853,8 @@ index b8796b1..eb30036 100644
 +    P_HV_VEL2_STEP_FILTER_CONFIG,
 +    P_HV_VEL2_STEP_FILTER_QUERY,
 +    P_HV_VEL2_STEP_FILTER_EXPECT,
++    P_HV_VEL2_GL1_FAST_CONFIG,
++    P_HV_VEL2_GL1_FAST_QUERY,
  
      P_FB_INIT = 0xd00,
      P_FB_SHUTDOWN,
@@ -865,7 +1112,7 @@ index 0000000..c381be0
 +}
 diff --git a/src/vel2_step_filter.h b/src/vel2_step_filter.h
 new file mode 100644
-index 0000000..aff8df5
+index 0000000..043933a
 --- /dev/null
 +++ b/src/vel2_step_filter.h
 @@ -0,0 +1,46 @@
@@ -965,10 +1212,10 @@ index 0000000..d9a0b85
 +#endif
 diff --git a/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py b/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py
 new file mode 100644
-index 0000000..b46f3c5
+index 0000000..6323d2c
 --- /dev/null
 +++ b/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,120 @@
 +# SPDX-License-Identifier: MIT
 +"""Host-independent tests for the virtual EL2 proxy API."""
 +
@@ -985,7 +1232,8 @@ index 0000000..b46f3c5
 +    def request(opcode, *args):
 +        calls.append((opcode, *args))
 +        if opcode in (proxy.P_HV_VEL2_TPIDR_GL2_QUERY,
-+                      proxy.P_HV_VEL2_STEP_FILTER_QUERY):
++                      proxy.P_HV_VEL2_STEP_FILTER_QUERY,
++                      proxy.P_HV_VEL2_GL1_FAST_QUERY):
 +            return replies[args[0]]
 +        return 0
 +
@@ -1025,6 +1273,37 @@ index 0000000..b46f3c5
 +    proxy, _ = proxy_with_replies({6: 0xffffffffffffffff})
 +    with pytest.raises(ValueError):
 +        proxy._hv_vel2_tpidr_gl2_query(6)
++
++
++def test_gl1_fast_redirect_enable_status_and_disable():
++    replies = dict(enumerate((
++        1, 0xfffffe0007004000, 0xaf80, 0xafc0, 0xb000, 0xb040,
++        8232, 7, 1176, 1176, 1176, 1176, 1176, 1176, 1176)))
++    proxy, calls = proxy_with_replies(replies)
++    tags = {"SPSR_GL1": 0xaf80, "ASPSR_GL1": 0xafc0,
++            "ESR_GL1": 0xb000, "ELR_GL1": 0xb040}
++    proxy.hv_vel2_gl1_fast_enable(0xfffffe0007004000, tags)
++    assert calls[0] == (
++        proxy.P_HV_VEL2_GL1_FAST_CONFIG, 1, 0xfffffe0007004000,
++        0xaf80, 0xafc0, 0xb000, 0xb040)
++    assert proxy.hv_vel2_gl1_fast_status() == {
++        "enabled": True, "pc_base": 0xfffffe0007004000,
++        "spsr_tag": 0xaf80, "aspsr_tag": 0xafc0,
++        "esr_tag": 0xb000, "elr_tag": 0xb040,
++        "handled": 8232, "forwarded": 7,
++        "write_spsr": 1176, "write_elr": 1176,
++        "read_aspsr": 1176, "write_aspsr": 1176,
++        "read_esr": 1176, "read_spsr": 1176, "read_elr": 1176,
++    }
++    proxy.hv_vel2_gl1_fast_disable()
++    assert calls[-1] == (
++        proxy.P_HV_VEL2_GL1_FAST_CONFIG, 0, 0, 0, 0, 0, 0)
++
++
++def test_gl1_fast_redirect_rejects_unknown_status_selector():
++    proxy, _ = proxy_with_replies({15: 0xffffffffffffffff})
++    with pytest.raises(ValueError):
++        proxy._hv_vel2_gl1_fast_query(15)
 +
 +
 +def test_step_filter_enable_status_and_disable():

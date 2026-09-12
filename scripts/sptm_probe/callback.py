@@ -30,6 +30,7 @@ def stopped(run, reason, code, info):
         event_state.native_xnu_cntp_ctl_callback = False
         event_state.native_xnu_apple_timer_callback = False
         event_state.native_xnu_pperm_site = None
+        event_state.native_phase53_retype_hvc_site = None
         event_state.native_dockchannel_site = None
         event_state.native_panic_carveout = False
         event_state.native_socd_trace = False
@@ -54,13 +55,32 @@ def stopped(run, reason, code, info):
                 if run.a.xnu_pperm_guest_window:
                     event_state.tag = int(event_state.native_ctx.esr) & 65535
                     for event_state.index, event_state.site in enumerate(run.FC_XNU_PPERM_SITES):
-                        event_state.pc, event_state.word, event_state.expected_tag, event_state.operation = event_state.site
+                        (event_state.window_type, event_state.step,
+                         event_state.pc, event_state.word,
+                         event_state.expected_tag,
+                         event_state.operation) = event_state.site
                         event_state.runtime_pc = int(run.report['handoff']['target_pc'], 0) + event_state.pc - run.FC_XNU_ENTRY_LINKED
                         event_state.kseg = run.layout.get('images', {}).get('kernelcache', {}).get('segments', {}).get('__TEXT_EXEC', {})
                         event_state.source_off = event_state.kseg.get('fileoff', 0) + event_state.pc - event_state.kseg.get('va', 0)
                         event_state.source_original = run.sources.get('kernelcache', b'')[event_state.source_off:event_state.source_off + 4]
                         if event_state.tag == event_state.expected_tag and event_state.native_ctx.elr - 4 == event_state.runtime_pc and (event_state.source_original == run.struct.pack('<I', event_state.word)):
                             event_state.native_xnu_pperm_site = (event_state.index, event_state.site)
+                            event_state.native_sptm_callback = False
+                            break
+                if (run.a.xnu_phase53_retype_hvc_fast_path and
+                        run.phase53_retype_hvc_state.get('active')):
+                    for event_state.site in run.RETYPE_HVC_SITES:
+                        event_state.runtime_pc = run.phase53_kernel_runtime(
+                            event_state.site.linked_pc)
+                        event_state.source_original = run.phase53_kernel_source(
+                            event_state.site.linked_pc, 4)
+                        if (int(event_state.native_ctx.esr) ==
+                                (0x5a000000 | event_state.site.hvc_immediate) and
+                                int(event_state.native_ctx.elr) ==
+                                    event_state.runtime_pc + 4 and
+                                event_state.source_original == run.struct.pack(
+                                    '<I', event_state.site.source_word)):
+                            event_state.native_phase53_retype_hvc_site = event_state.site
                             event_state.native_sptm_callback = False
                             break
             if event_state.reason == run.START.EXCEPTION_LOWER and event_state.code == run.EXC.SYNC and (int(event_state.native_ctx.esr) == run.FC_XNU_AGT_ESR):
@@ -100,6 +120,16 @@ def stopped(run, reason, code, info):
             descriptor.handle_leaf_rearm(run, event_state)
         elif run.phase53_descriptor_bind_state.get('active') and event_state.reason == run.START.EXCEPTION_LOWER and (event_state.code == run.EXC.SYNC) and (int(event_state.native_ctx.esr if run.handoff_state.get('native') else run.iface.readstruct(event_state.info, run.ExcInfo).esr) >> 26 == 50):
             descriptor.handle_step(run, event_state)
+        elif (run.phase53_retype_hvc_state.get('active') and
+              run.phase53_retype_hvc_state.get('stage') == 'epilogue' and
+              run.handoff_state.get('native') and
+              event_state.reason == run.START.EXCEPTION_LOWER and
+              event_state.code == run.EXC.SYNC and
+              int(event_state.native_ctx.esr) >> 26 == 0x32):
+            retype.handle_hvc_epilogue(run, event_state)
+        elif (run.handoff_state.get('native') and
+              event_state.native_phase53_retype_hvc_site is not None):
+            retype.handle_hvc_site(run, event_state)
         elif run.phase53_retype_survey_state.get('active') and run.phase53_retype_survey_state.get('stage') == 'seek-entry' and (run.phase53_retype_survey_state.get('completed_calls', 0) > 0) and (run.phase53_retype_survey_state.get('range0') == run.FC_TXM_RUNTIME_TEXT) and run.handoff_state.get('native') and (event_state.reason == run.START.EXCEPTION_LOWER) and (event_state.code == run.EXC.SYNC) and (int(event_state.native_ctx.esr) >> 26 == 50) and (run.FC_XNU_RUNTIME_TEXT[0] <= event_state.native_ctx.elr < run.FC_XNU_RUNTIME_TEXT[1]):
             retype.handle_unrelated_return(run, event_state)
         elif run.phase53_retype_survey_state.get('active') and run.handoff_state.get('native') and (event_state.reason == run.START.EXCEPTION_LOWER) and (event_state.code == run.EXC.SYNC) and (int(event_state.native_ctx.esr) >> 26 == 50) and (event_state.native_ctx.elr == run.FC_XNU_PHASE53_GENTER_RETURN) and (run.phase53_retype_survey_state.get('stage') == 'seek-genter-return'):

@@ -36,6 +36,16 @@ APPLE_OBSERVED_REGISTERS = (
 # docs/real-memory-stage0/first-contact-build-spec.md). Image virtual base
 # 0xfffffe0007004000; __TEXT_EXEC fileoff == image offset.
 FC_IMAGE_BASE = 0xfffffe0007004000
+GL1_FAST_SITE_CONTRACT = (
+    # name, post-HVC PC offset, source instruction, redirected register, HVC low bits
+    ('write_spsr', 0xa04f4, 0xd51efa6a, 'SPSR_GL1', 0x0a),
+    ('write_elr', 0xa0500, 0xd51efacc, 'ELR_GL1', 0x0c),
+    ('read_aspsr', 0xa0504, 0xd53efa89, 'ASPSR_GL1', 0x29),
+    ('write_aspsr', 0xa050c, 0xd51efa89, 'ASPSR_GL1', 0x09),
+    ('read_esr', 0xa052c, 0xd53efaa8, 'ESR_GL1', 0x28),
+    ('read_spsr', 0xa0a94, 0xd53efa6a, 'SPSR_GL1', 0x2a),
+    ('read_elr', 0xa0aa4, 0xd53efaca, 'ELR_GL1', 0x2a),
+)
 FC_IDLE_PC = 0xfffffe00070f8b88  # NOT idle: this wfe;b is SPTM's PANIC HALT (inside the panic fn 0xf8980, reached via 0xf8ca0). Treat a stop here as a panic.
 FC_GENTER = 0x00201420             # genter #0 -> guarded-ESR type 0 (guarded call)
 FC_DISPATCH = 0xfffffe00070a4524   # real service dispatcher (reads guarded ESR type)
@@ -161,6 +171,9 @@ FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB = 0xfffffe002bf7a4d4
 FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_LINKED = 0xfffffe000bf7a4d4
 FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_WORD = 0xd65f0fff
 FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_PREVIOUS = 0xfffffe002bf7a4d0
+FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS = (
+    0xd503237f, 0xa9bf7bfd, 0x910003fd, 0x97db1f52, 0xd2800030,
+    0x00201420, 0x97db1f6a, 0x910003bf, 0xa8c17bfd, 0xd65f0fff)
 FC_XNU_PHASE53_RETYPE_SURVEY_FAST_STEPS = 1 << 22
 FC_XNU_PHASE53_RETYPE_SURVEY_TOTAL_STEPS = 1 << 27
 FC_XNU_PHASE53_RETYPE_SURVEY_MAX_REARMS = 512
@@ -340,10 +353,15 @@ FC_XNU_SOCD_FAR = 0xfffffe003a61d014
 FC_XNU_SOCD_LINKED = 0xfffffe000b72118c
 FC_XNU_SOCD_WORD = 0xb9000169  # str w9, [x11]
 FC_XNU_SOCD_ESR = 0x93890046
-FC_XNU_PPERM_SITES = ((0xfffffe000b800260, 0xd53ef1c8, 0x6110, 'read-a'),
-    (0xfffffe000b80026c, 0xd51ef1c8, 0x6111, 'write-b'),
-    (0xfffffe000b80029c, 0xd53ef1c8, 0x6112, 'read-b'),
-    (0xfffffe000b8002a8, 0xd51ef1c8, 0x6113, 'write-a'))
+FC_XNU_PPERM_SITES = (
+    ('memcpy', 0, 0xfffffe000b800260, 0xd53ef1c8, 0x6110, 'read-a'),
+    ('memcpy', 1, 0xfffffe000b80026c, 0xd51ef1c8, 0x6111, 'write-b'),
+    ('memcpy', 2, 0xfffffe000b80029c, 0xd53ef1c8, 0x6112, 'read-b'),
+    ('memcpy', 3, 0xfffffe000b8002a8, 0xd51ef1c8, 0x6113, 'write-a'),
+    ('atomic', 0, 0xfffffe000b800508, 0xd53ef1c8, 0x6120, 'read-a'),
+    ('atomic', 1, 0xfffffe000b800514, 0xd51ef1c8, 0x6121, 'write-b'),
+    ('atomic', 2, 0xfffffe000b800668, 0xd53ef1c8, 0x6122, 'read-b'),
+    ('atomic', 3, 0xfffffe000b800674, 0xd51ef1c8, 0x6123, 'write-a'))
 
 
 FC_XNU_M3_COMPAT_ORIGIN = '874ff59ea1297b8bdc438c6ad425efdcf4224dd3'

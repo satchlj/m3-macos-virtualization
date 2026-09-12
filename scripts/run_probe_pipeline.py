@@ -24,12 +24,13 @@ FIELDS = {'payload','checkout','device','steps','step_batch','trace_window','pau
           'xnu_pperm_guest_window',
           'xnu_pperm_guest_window_limit',
           'xnu_apple_physical_timer_hypothesis',
-          'xnu_tpidr_gl2_fast_shadow','xnu_txm_context_entry_one_step',
+          'xnu_tpidr_gl2_fast_shadow','xnu_gl1_fast_redirect','xnu_txm_context_entry_one_step',
           'xnu_txm_context_entry_register_prefix','xnu_txm_context_stack_claim_one_step',
           'xnu_txm_context_stack_metadata_init','xnu_txm_context_x18_branch_one_step',
           'xnu_txm_context_outbound_branch_one_step','xnu_txm_handler_boundary',
           'xnu_txm_sstep_fast_path','xnu_phase53_allocation_trace',
           'xnu_phase53_retype_survey','xnu_phase53_retype_survey_limit',
+          'xnu_phase53_retype_hvc_fast_path',
           'xnu_phase53_descriptor_bind','xnu_phase53_leaf_page_bind',
           'xnu_phase53_adt_entropy_replay', CONFIG_EVIDENCE_FIELD}
 FLAGS = {'allow_monitor_mmu','emulate_zero_loops','relocate_boot_data','allow_live_ttbr',
@@ -40,6 +41,7 @@ FLAGS = {'allow_monitor_mmu','emulate_zero_loops','relocate_boot_data','allow_li
 FLAGS.add('xnu_private_socd_trace')
 FLAGS.add('xnu_pperm_guest_window')
 FLAGS.add('xnu_tpidr_gl2_fast_shadow')
+FLAGS.add('xnu_gl1_fast_redirect')
 FLAGS.add('xnu_txm_context_entry_one_step')
 FLAGS.add('xnu_txm_context_entry_register_prefix')
 FLAGS.add('xnu_txm_context_stack_claim_one_step')
@@ -49,6 +51,7 @@ FLAGS.add('xnu_txm_context_outbound_branch_one_step')
 FLAGS.add('xnu_txm_sstep_fast_path')
 FLAGS.add('xnu_phase53_allocation_trace')
 FLAGS.add('xnu_phase53_retype_survey')
+FLAGS.add('xnu_phase53_retype_hvc_fast_path')
 FLAGS.add('xnu_phase53_descriptor_bind')
 FLAGS.add('xnu_phase53_leaf_page_bind')
 FLAGS.add('xnu_phase53_adt_entropy_replay')
@@ -66,6 +69,7 @@ SUMMARY_FIELDS = (
     'xnu_txm_sstep_fast_path',
     'xnu_phase53_allocation_trace',
     'xnu_phase53_retype_survey',
+    'xnu_phase53_retype_hvc_fast_path',
     'xnu_phase53_descriptor_bind',
     'xnu_phase53_leaf_page_bind',
     'xnu_phase53_adt_entropy_replay',
@@ -75,6 +79,7 @@ SUMMARY_FIELDS = (
     'xnu_pperm_guest_window', 'xnu_pperm_guest_window_cleanup',
     'xnu_apple_physical_timer_hypothesis', 'xnu_apple_physical_timer_cleanup',
     'xnu_tpidr_gl2_fast_shadow',
+    'xnu_gl1_fast_redirect',
     'xnu_txm_context_entry_one_step', 'eret_classifications',
     'xnu_txm_context_entry_register_prefix',
     'xnu_txm_context_stack_claim_one_step',
@@ -222,6 +227,8 @@ def probe_command(config, output, execute):
         raise ValueError('xnu_apple_physical_timer_hypothesis requires xnu_run')
     if config.get('xnu_tpidr_gl2_fast_shadow') and not config.get('xnu_run'):
         raise ValueError('xnu_tpidr_gl2_fast_shadow requires xnu_run')
+    if config.get('xnu_gl1_fast_redirect') and not config.get('xnu_run'):
+        raise ValueError('xnu_gl1_fast_redirect requires xnu_run')
     if config.get('xnu_txm_context_entry_one_step') and not config.get('xnu_run'):
         raise ValueError('xnu_txm_context_entry_one_step requires xnu_run')
     if config.get('xnu_txm_context_entry_register_prefix') and not config.get('xnu_run'):
@@ -256,6 +263,11 @@ def probe_command(config, output, execute):
             raise ValueError('xnu_phase53_retype_survey_limit must be integer 1..64')
         if not config.get('xnu_phase53_retype_survey'):
             raise ValueError('xnu_phase53_retype_survey_limit requires xnu_phase53_retype_survey')
+    if (config.get('xnu_phase53_retype_hvc_fast_path') and
+            (not config.get('xnu_phase53_retype_survey') or
+             not config.get('xnu_gl1_fast_redirect'))):
+        raise ValueError('xnu_phase53_retype_hvc_fast_path requires '
+                         'xnu_phase53_retype_survey and xnu_gl1_fast_redirect')
     if (config.get('xnu_phase53_descriptor_bind') and
             not config.get('xnu_phase53_retype_survey')):
         raise ValueError('xnu_phase53_descriptor_bind requires xnu_phase53_retype_survey')

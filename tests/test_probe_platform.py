@@ -129,16 +129,16 @@ class XnuCompatibilityPatchTests(unittest.TestCase):
         result=restore_xnu_pperm_guest_window(
             Forbidden(),'PPERM_EL12',{'previous':prior,'modified':True},False)
         self.assertFalse(result['attempted'])
-    def test_pperm_window_rewrites_only_four_exact_sites_to_distinct_hvcs(self):
-        lo = min(site[0] for site in FC_XNU_PPERM_SITES)
-        hi = max(site[0] for site in FC_XNU_PPERM_SITES) + 4
+    def test_pperm_window_rewrites_only_exact_sites_to_distinct_hvcs(self):
+        lo = min(site[2] for site in FC_XNU_PPERM_SITES)
+        hi = max(site[2] for site in FC_XNU_PPERM_SITES) + 4
         segment = {'va': lo, 'filesize': hi-lo}
         chunk = bytearray(hi-lo)
-        for pc, word, _, _ in FC_XNU_PPERM_SITES:
+        for _, _, pc, word, _, _ in FC_XNU_PPERM_SITES:
             struct.pack_into('<I', chunk, pc-lo, word)
         patched, records = patch_xnu_pperm_guest_window(bytes(chunk), segment, True)
-        self.assertEqual(len(records), 4)
-        for pc, _, tag, _ in FC_XNU_PPERM_SITES:
+        self.assertEqual(len(records), 8)
+        for _, _, pc, _, tag, _ in FC_XNU_PPERM_SITES:
             self.assertEqual(struct.unpack_from('<I', patched, pc-lo)[0],
                              0xd4000002 | (tag << 5))
         changed = bytearray(chunk); changed[0] ^= 1

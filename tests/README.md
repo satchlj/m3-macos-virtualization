@@ -91,6 +91,6 @@ unit-test discovery. Its scope is documented in the
 
 A green suite is not a CPU model, a test of production safety, or evidence of a
 macOS boot. The recorded structural-refactor baseline was 491 configured tests. With the
-subsequent Phase 5.3 descriptor/leaf extensions, the configured suite reports
-515 tests and 5 expected private-evidence skips; the unconfigured suite reports
-507 tests and 197 skips.
+subsequent Phase 5.3 descriptor/leaf and HVC fast-path extensions, the configured
+suite reports 526 tests and 6 expected skips. The unconfigured skip count depends
+on which pinned-source tools are absent.

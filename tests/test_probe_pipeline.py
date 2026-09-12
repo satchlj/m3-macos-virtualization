@@ -10,6 +10,24 @@ from run_manifest import file_identity
 
 
 class PipelineTests(unittest.TestCase):
+
+    def test_gl1_fast_redirect_is_explicit_and_requires_xnu_run(self):
+        base = dict(payload='/payload', checkout='/checkout', device='/device',
+                    steps=16, free_run=True, real_guarded=True, hang_budget=120,
+                    native_handoff=True, xnu_steps=64, xnu_run=True)
+        command = probe_command(dict(base, xnu_gl1_fast_redirect=True),
+                                Path('/output'), True)
+        self.assertIn('--xnu-gl1-fast-redirect', command)
+        self.assertNotIn('--xnu-gl1-fast-redirect',
+                         probe_command(dict(base, xnu_gl1_fast_redirect=False),
+                                       Path('/output'), True))
+        with self.assertRaisesRegex(ValueError, 'requires xnu_run'):
+            probe_command(dict(base, xnu_run=False,
+                               xnu_gl1_fast_redirect=True),
+                          Path('/output'), True)
+        with self.assertRaisesRegex(ValueError, 'Expected Boolean'):
+            probe_command(dict(base, xnu_gl1_fast_redirect=1),
+                          Path('/output'), True)
     def test_summary_distinguishes_final_stop_from_handoff_observer(self):
         private = {'enabled': True, 'mapped': True, 'raw_source_artifact_saved': False}
         cntp_cleanup = {'register': 'CNTP_CTL_EL02', 'attempted': True,

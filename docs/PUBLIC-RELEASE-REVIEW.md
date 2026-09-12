@@ -137,7 +137,7 @@ private evidence, fetched dependencies, payloads, and editor checkpoint refs are
 outside the intended release. No GitHub remote is configured in this checkout at
 review time. No repository has been created or made public by this review.
 
-The original cleanup validation checked AST-preserving refactoring, pinned patch and license identities, and local links without executing hardware. The refreshed snapshot also includes the Phase 5.3 descriptor/leaf gates and synthetic regressions: 515 configured host tests pass with 5 private-evidence skips, and documentation reachability passes. Attempt 119 hardware evidence is represented only by concise findings and hashes; raw reports, event journals, device trees, payloads, serial paths, and archives remain excluded.
+The original cleanup validation checked AST-preserving refactoring, pinned patch and license identities, and local links without executing hardware. The refreshed snapshot also includes the Phase 5.3 descriptor/leaf gates and synthetic regressions: 526 configured host tests pass with 6 expected skips, and documentation reachability passes. Hardware evidence is represented only by concise findings; raw reports, event journals, device trees, payloads, serial paths, and archives remain excluded.
 
 ## Publication audit — September 11, 2026
 
@@ -167,6 +167,27 @@ uses an explicit commit-to-`main` refspec, without tags or mirror mode.
 Fresh-environment setup and GitHub CI remain deferred. Earlier host-test results
 are not a substitute for a fresh setup or independent hardware reproduction.
 
-Pre-publication validation on the configured local environment passed: 515
-host tests discovered, five skipped; documentation checks reached all 100
+Pre-publication validation on the configured local environment passed: 526
+host tests discovered, six skipped; documentation checks reached all 100
 Markdown files. No hardware was accessed during this audit.
+
+## Phase 5.3 refresh — September 12, 2026
+
+The public tree now carries the validated behavior through the private research
+baseline `fd51f24`, translated into the existing split probe package rather than
+copying private development history. The refresh adds the source-pinned GL1
+redirect, three-site retype HVC accelerator, exact SS-off ERET continuation,
+atomic and memcpy permission-window families, synthetic regressions, and the
+matching pinned firmware patch and lock metadata. The public facade and package
+layout remain unchanged.
+
+Attempt 143 is included only as a concise engineering result: the PRE callback
+and six exact ERET continuations passed, while GENTER rejected a pointer-
+authenticated link register before any retype, descriptor, leaf, or AIC result.
+No attempt configuration, report, event stream, device path, payload, firmware,
+kernel image, archive path, UUID, or private-input digest was copied here.
+
+The September 12 refresh repeated the tracked-tree, history, secret-pattern,
+symlink, binary, license-marker, documentation-link, and configured host-test
+reviews. Any exceptions and their disposition are recorded above or in the
+commit history; no hardware was accessed.

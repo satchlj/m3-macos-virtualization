@@ -36,6 +36,7 @@ sequence. Review [the evidence and safety model](../docs/SAFETY.md) separately.
 | [replay_table_snapshot.py](replay_table_snapshot.py) | Replay bounded guest translation from hash-verified diagnostic table pages. |
 | [replay_debug_probe.py](replay_debug_probe.py) | Replay debug traps through the real probe callback and an in-memory transport. |
 | [phase53_entropy_replay.py](phase53_entropy_replay.py) | Opt-in, fail-closed replay of three hashed ADT entropy properties from a locally retained pinned source. |
+| [phase53_retype_hvc.py](phase53_retype_hvc.py) | Pure source-pin, rewrite-plan, and strict PRE/GENTER/POST state machine for the bounded retype survey accelerator. |
 | [revalidate_phase53_descriptor_bind.py](revalidate_phase53_descriptor_bind.py) | Revalidate a retained descriptor-bind report against its immutable event archive. |
 
 ## Local evidence and repository maintenance

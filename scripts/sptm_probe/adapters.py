@@ -2,6 +2,7 @@
 # Copyright The Asahi Linux Contributors (upstream portions).
 # See repository LICENSES.md and THIRD_PARTY_NOTICES.md.
 """Firmware adapter interfaces and teardown auditing."""
+from sptm_layout import PAGE
 
 class PpermWindowLimit(Exception):
     pass
@@ -103,6 +104,114 @@ class TpidrGl2FastShadow:
         if status['enabled']:
             raise RuntimeError('TPIDR_GL2 fast shadow remained enabled at teardown')
         return status
+
+
+class Gl1FastRedirect:
+    """Fail-closed host boundary for the exact live GL12 redirect fast path."""
+    ENABLE = 'hv_vel2_gl1_fast_enable'
+    STATUS = 'hv_vel2_gl1_fast_status'
+    DISABLE = 'hv_vel2_gl1_fast_disable'
+    TAG_NAMES = ('SPSR_GL1', 'ASPSR_GL1', 'ESR_GL1', 'ELR_GL1')
+    STATUS_FIELDS = (
+        'enabled', 'pc_base', 'spsr_tag', 'aspsr_tag', 'esr_tag', 'elr_tag',
+        'handled', 'forwarded', 'write_spsr', 'write_elr', 'read_aspsr',
+        'write_aspsr', 'read_esr', 'read_spsr', 'read_elr')
+
+    def __init__(self, proxy):
+        self.proxy = proxy
+        missing = [name for name in (self.ENABLE, self.STATUS, self.DISABLE)
+                   if not callable(getattr(proxy, name, None))]
+        if missing:
+            raise RuntimeError('GL1 fast-redirect proxy API unavailable: ' +
+                               ', '.join(missing))
+
+    @staticmethod
+    def _validate_tag(tag):
+        if (type(tag) is not int or not 0 <= tag <= 0xffff or
+                tag & 0xc03f != 0x8000):
+            raise RuntimeError('Invalid GL1 fast-redirect HVC tag: ' + repr(tag))
+
+    def status(self):
+        status = getattr(self.proxy, self.STATUS)()
+        if not isinstance(status, dict):
+            raise RuntimeError('GL1 fast-redirect status is not a dictionary')
+        missing = [name for name in self.STATUS_FIELDS if name not in status]
+        if missing:
+            raise RuntimeError('GL1 fast-redirect status missing: ' +
+                               ', '.join(missing))
+        if type(status['enabled']) is not bool:
+            raise RuntimeError('GL1 fast-redirect enabled status is not Boolean')
+        for name in self.STATUS_FIELDS[1:]:
+            value = status[name]
+            if type(value) is not int or not 0 <= value <= (1 << 64) - 1:
+                raise RuntimeError('GL1 fast-redirect status field is not u64: ' + name)
+        if status['enabled']:
+            if not status['pc_base'] or status['pc_base'] & (PAGE - 1):
+                raise RuntimeError('Invalid GL1 fast-redirect PC base readback')
+            for name in ('spsr_tag', 'aspsr_tag', 'esr_tag', 'elr_tag'):
+                self._validate_tag(status[name])
+        return {name: status[name] for name in self.STATUS_FIELDS}
+
+    @staticmethod
+    def _check_result(operation, result):
+        if result not in (None, 0):
+            raise RuntimeError('GL1 fast-redirect %s failed: %r' %
+                               (operation, result))
+
+    def prepare(self):
+        before = self.status()
+        if before['enabled']:
+            self._check_result('preflight disable',
+                               getattr(self.proxy, self.DISABLE)())
+        after = self.status()
+        if after['enabled']:
+            raise RuntimeError('GL1 fast redirect remained enabled at preflight')
+        return dict(before=before, after=after,
+                    stale_state_cleared=before['enabled'])
+
+    def enable(self, pc_base, tags):
+        if type(pc_base) is not int or not pc_base or pc_base & (PAGE - 1):
+            raise RuntimeError('Invalid GL1 fast-redirect PC base')
+        if (not isinstance(tags, dict) or
+                any(name not in tags for name in self.TAG_NAMES)):
+            raise RuntimeError('GL1 fast-redirect tags are incomplete')
+        for name in self.TAG_NAMES:
+            self._validate_tag(tags[name])
+        if len({tags[name] for name in self.TAG_NAMES}) != len(self.TAG_NAMES):
+            raise RuntimeError('GL1 fast-redirect tags are not distinct')
+        expected_tags = dict(zip(
+            ('spsr_tag', 'aspsr_tag', 'esr_tag', 'elr_tag'),
+            (tags[name] for name in self.TAG_NAMES)))
+        try:
+            self._check_result('enable', getattr(self.proxy, self.ENABLE)(
+                pc_base, tags))
+            status = self.status()
+            counters = self.STATUS_FIELDS[6:]
+            if (not status['enabled'] or status['pc_base'] != pc_base or
+                    any(status[name] != value
+                        for name, value in expected_tags.items()) or
+                    any(status[name] for name in counters)):
+                raise RuntimeError('GL1 fast-redirect enable readback mismatch')
+            return status
+        except Exception as enable_error:
+            try:
+                self._check_result('enable-failure disable',
+                                   getattr(self.proxy, self.DISABLE)())
+                after = self.status()
+                if after['enabled']:
+                    raise RuntimeError('still enabled')
+            except Exception as disable_error:
+                raise RuntimeError('%s; fail-closed disable also failed: %s' %
+                                   (enable_error, disable_error)) from enable_error
+            raise
+
+    def disable(self):
+        before = self.status()
+        self._check_result('disable', getattr(self.proxy, self.DISABLE)())
+        after = self.status()
+        if after['enabled']:
+            raise RuntimeError('GL1 fast redirect remained enabled at teardown')
+        return dict(before=before, after=after)
 
 
 class Vel2StepFilter:

@@ -25,11 +25,17 @@ from guest_exception_stop import GuestExceptionStop
 from guarded_pause import GuardedPause
 from phase53_entropy_replay import (load_pinned_source,
                                     replay_entropy_properties)
+from phase53_retype_hvc import (GENTER_SITE as PHASE53_RETYPE_GENTER_SITE,
+                                POST_SITE as PHASE53_RETYPE_POST_SITE,
+                                PRE_SITE as PHASE53_RETYPE_PRE_SITE,
+                                RETYPE_HVC_SITES,
+                                RetypeHvcStateMachine,
+                                source_pinned_rewrite_plan)
 
 from functools import partial
 from .constants import *
 from .adapters import (
-    PpermWindowLimit,
+    PpermWindowLimit, Gl1FastRedirect,
     TpidrGl2FastShadow,
     Vel2StepFilter,
     audit_and_disable_tpidr_gl2_fast_shadow,
@@ -291,6 +297,10 @@ def run_probe(a, report, save, capture):
     tpidr_gl2_register = sysreg_fwd['TPIDR_GL2']
     tpidr_gl2_shadow_tag_base = 0x8000 | (extra_regs.index(tpidr_gl2_register) << 6)
     tpidr_gl2_fast_shadow = None
+    gl1_fast_tags = {
+        name: 0x8000 | (extra_regs.index(sysreg_fwd[name]) << 6)
+        for name in Gl1FastRedirect.TAG_NAMES}
+    gl1_fast_redirect = None
     txm_sstep_fast_path = None
     report['xnu_txm_sstep_fast_path'] = dict(
         requested=bool(a.xnu_txm_sstep_fast_path), activated=False,
@@ -313,6 +323,17 @@ def run_probe(a, report, save, capture):
         target_types=[hex(value) for value in
                       FC_XNU_PHASE53_RETYPE_SURVEY_TARGET_TYPES],
         primary_target='0xb->0x14')
+    report['xnu_phase53_retype_hvc_fast_path'] = dict(
+        requested=bool(a.xnu_phase53_retype_hvc_fast_path), activated=False,
+        call_limit=a.xnu_phase53_retype_survey_limit,
+        pre_hvc=hex(PHASE53_RETYPE_PRE_SITE.hvc_immediate),
+        genter_hvc=hex(PHASE53_RETYPE_GENTER_SITE.hvc_immediate),
+        post_hvc=hex(PHASE53_RETYPE_POST_SITE.hvc_immediate),
+        activation_gate=(
+            'verified allocation trace plus three atomically source-pinned wrapper rewrites'),
+        scope_limits=(
+            'strict PRE/GENTER/POST ordering; exact source/live wrapper, caller frame, '
+            'owned FTE, and seven GL1 counter deltas; at most 64 calls'))
     report['xnu_phase53_descriptor_bind'] = dict(
         requested=bool(a.xnu_phase53_descriptor_bind), activated=False,
         per_leg_step_limit=FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS,
@@ -365,6 +386,33 @@ def run_probe(a, report, save, capture):
         except Exception as fast_shadow_error:
             report['xnu_tpidr_gl2_fast_shadow']['preflight_error'] = str(fast_shadow_error)
             report['stop_reason'] = 'xnu-tpidr-gl2-fast-shadow-unavailable'
+            try:
+                save()
+            finally:
+                iface.dev.close()
+            raise
+    report['xnu_gl1_fast_redirect'] = dict(
+        requested=bool(getattr(a, 'xnu_gl1_fast_redirect', False)), activated=False,
+        pc_base=hex(FC_IMAGE_BASE),
+        tags={name: hex(value) for name, value in gl1_fast_tags.items()},
+        activation_gate=(
+            'verified kernelcache continuation plus seven pinned source/HVC words, '
+            'before native handoff and SS clear'),
+        scope_limits=(
+            'accelerates only seven exact post-HVC PC/full-immediate pairs through '
+            'live GL12 aliases; every other guarded access remains host-visible'))
+    if getattr(a, 'xnu_gl1_fast_redirect', False):
+        try:
+            gl1_fast_redirect = Gl1FastRedirect(p)
+            report['xnu_gl1_fast_redirect']['proxy_api'] = dict(
+                enable=Gl1FastRedirect.ENABLE,
+                status=Gl1FastRedirect.STATUS,
+                disable=Gl1FastRedirect.DISABLE)
+            report['xnu_gl1_fast_redirect']['preflight'] = (
+                gl1_fast_redirect.prepare())
+        except Exception as gl1_fast_error:
+            report['xnu_gl1_fast_redirect']['preflight_error'] = str(gl1_fast_error)
+            report['stop_reason'] = 'xnu-gl1-fast-redirect-unavailable'
             try:
                 save()
             finally:
@@ -430,6 +478,10 @@ def run_probe(a, report, save, capture):
         chunk = sources[which][seg['fileoff']:seg['fileoff']+seg['filesize']]
         if which == 'sptm' and name == '__TEXT_EXEC':
             rewritten = patch_probe_code(chunk)
+            if getattr(a, 'xnu_gl1_fast_redirect', False):
+                report['xnu_gl1_fast_redirect']['verified_sites'] = (
+                    verify_gl1_fast_rewrite(
+                        chunk, rewritten, seg['fileoff'], gl1_fast_tags))
             patched_count += sum(chunk[i:i+4] != rewritten[i:i+4] for i in range(0,len(chunk),4))
             chunk = rewritten
             if a.first_contact or a.guarded_call_selectors:
@@ -456,14 +508,22 @@ def run_probe(a, report, save, capture):
                 report['xnu_m3_ahcr_compat'] = compat_record
             chunk, report['xnu_pmcr1_bank_collapse'] = patch_xnu_pmcr1_bank_collapse(
                 chunk, seg, True)
+            _, retype_hvc_patches = patch_xnu_phase53_retype_hvc(
+                chunk, seg, a.xnu_phase53_retype_hvc_fast_path)
+            if retype_hvc_patches:
+                report['xnu_phase53_retype_hvc_fast_path'].update(
+                    planned_patches=retype_hvc_patches,
+                    patch_scope='late live writes to the isolated guest image only')
             chunk, pperm_patches = patch_xnu_pperm_guest_window(
                 chunk, seg, a.xnu_pperm_guest_window)
             if pperm_patches:
                 report['xnu_pperm_guest_window'] = dict(enabled=True, patches=pperm_patches,
-                    sequence=[], memcpy_crossed=False, physical_pperm_el1_touched=False,
+                    sequence=[], memcpy_crossed=False, atomic_crossed=False,
+                    physical_pperm_el1_touched=False,
                     chip_id=hex(chip_id), profile='native XNU under real-guarded VEL2',
                     limit=a.xnu_pperm_guest_window_limit, started_windows=0,
-                    completed_windows=0, memcpy_crossed_windows=0)
+                    completed_windows=0, memcpy_crossed_windows=0,
+                    atomic_crossed_windows=0)
         off = placement['offset']
         blob[off:off+len(chunk)] = chunk
     report['sptm_rewritten_instructions'] = patched_count
@@ -582,13 +642,193 @@ def run_probe(a, report, save, capture):
     txm_validator_trace_state = dict(active=False)
     phase53_allocation_trace_state = dict(active=False)
     phase53_retype_survey_state = dict(active=False)
+    phase53_retype_hvc_state = dict(active=False)
     phase53_descriptor_bind_state = dict(active=False)
     xnu_agt_state = dict(previous=None, writes=0)
     xnu_cntp_ctl_state = dict(previous=None, writes=0)
-    xnu_pperm_state = dict(previous=None, step=0, modified=False,
+    xnu_pperm_state = dict(previous=None, step=0, window_type=None, modified=False,
                            started=0, completed=0)
     xnu_apple_timer_state = dict(previous=None, writes=0)
     watchdog = FreeRunWatchdog(iface, a.hang_budget) if a.free_run else None
+    def phase53_kernel_runtime(linked_pc):
+        return (int(report['handoff']['target_pc'], 0) + linked_pc -
+                FC_XNU_ENTRY_LINKED)
+
+    def phase53_kernel_source(linked_pc, size):
+        segment = layout['images']['kernelcache']['segments']['__TEXT_EXEC']
+        offset = segment['fileoff'] + linked_pc - segment['va']
+        if not (segment['fileoff'] <= offset and
+                offset + size <= segment['fileoff'] + segment['filesize']):
+            raise ValueError('Phase53 kernel source range outside __TEXT_EXEC')
+        raw = sources['kernelcache'][offset:offset + size]
+        if len(raw) != size:
+            raise ValueError('Truncated Phase53 kernel source range')
+        return raw
+
+    def phase53_owned_table(table):
+        if (table & (PAGE - 1) or
+                not base <= table < table + PAGE <= base + guest_size):
+            raise ValueError('Phase53 table outside owned guest RAM')
+        raw = iface.readmem(table, PAGE)
+        if len(raw) != PAGE:
+            raise ValueError('Truncated Phase53 translation table')
+        return raw
+
+    def phase53_read_live(roots, va, size):
+        leaf = translate(va, roots['ttbr0'], roots['ttbr1'],
+                         phase53_owned_table)
+        if ((leaf['pa'] & (PAGE - 1)) + size > PAGE or
+                not base <= leaf['pa'] < leaf['pa'] + size <=
+                    base + guest_size):
+            raise ValueError('Phase53 live range outside one owned page')
+        raw = iface.readmem(leaf['pa'], size)
+        if len(raw) != size:
+            raise ValueError('Truncated Phase53 live range')
+        return leaf, raw
+
+    def phase53_capture_fte(roots, physical_address):
+        pointer_leaf, pointer_raw = phase53_read_live(
+            roots, FC_SPTM_PHASE53_FTE_BASE_POINTER, 8)
+        fte_base = struct.unpack('<Q', pointer_raw)[0]
+        center_va = fte_base + (
+            ((physical_address - base) >> 10) & 0x3ffffffffffff0)
+        records = []
+        for delta in (-16, 0, 16):
+            va = center_va + delta
+            leaf, raw = phase53_read_live(roots, va, 16)
+            records.append(dict(
+                delta=delta, va=hex(va), pa=hex(leaf['pa']),
+                hex=raw.hex(), sha256=hashlib.sha256(raw).hexdigest(),
+                in_flight_ops=struct.unpack('<H', raw[:2])[0],
+                type=raw[2], complete=True,
+                level_three=leaf['level'] == 3,
+                access_flag=leaf['access_flag']))
+        return dict(
+            base_pointer_va=hex(FC_SPTM_PHASE53_FTE_BASE_POINTER),
+            base_pointer_pa=hex(pointer_leaf['pa']),
+            base_pointer_hex=pointer_raw.hex(),
+            pointer_level_three=pointer_leaf['level'] == 3,
+            pointer_access_flag=pointer_leaf['access_flag'],
+            fte_base=hex(fte_base), center_va=hex(center_va),
+            records=records)
+
+    def phase53_fte_checks(prefix, snapshot, expected_type):
+        center = snapshot['records'][1]
+        return {
+            prefix + '_pointer_level_three':
+                snapshot['pointer_level_three'],
+            prefix + '_pointer_access_flag':
+                snapshot['pointer_access_flag'],
+            prefix + '_records_complete':
+                all(item['complete'] for item in snapshot['records']),
+            prefix + '_records_level_three':
+                all(item['level_three'] for item in snapshot['records']),
+            prefix + '_records_access_flag':
+                all(item['access_flag'] for item in snapshot['records']),
+            prefix + '_center_unlocked': center['in_flight_ops'] == 0,
+            prefix + '_center_type': center['type'] == (expected_type & 0xff),
+        }
+
+    def phase53_wrapper_snapshot(roots, patched=True):
+        source = phase53_kernel_source(
+            FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY_LINKED,
+            len(FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS) * 4)
+        runtime = phase53_kernel_runtime(
+            FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY_LINKED)
+        leaf, live = phase53_read_live(roots, runtime, len(source))
+        expected_source = struct.pack(
+            '<' + 'I' * len(FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS),
+            *FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS)
+        expected_live_words = list(FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS)
+        if patched:
+            expected_live_words[2] = PHASE53_RETYPE_PRE_SITE.hvc_word
+            expected_live_words[4] = PHASE53_RETYPE_GENTER_SITE.hvc_word
+            expected_live_words[7] = PHASE53_RETYPE_POST_SITE.hvc_word
+        expected_live = struct.pack(
+            '<' + 'I' * len(expected_live_words), *expected_live_words)
+        return dict(
+            linked_pc=hex(FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY_LINKED),
+            runtime_pc=hex(runtime), pa=hex(leaf['pa']),
+            source_hex=source.hex(), live_hex=live.hex(),
+            source_exact=source == expected_source,
+            live_exact=live == expected_live,
+            level_three=leaf['level'] == 3,
+            access_flag=leaf['access_flag'])
+
+    def phase53_hvc_target_bytes_match(handoff):
+        """Accept source-exact target bytes plus only our three live HVCs."""
+        if handoff.get('bytes_match') is True:
+            return True
+        if handoff.get('image') != 'kernelcache':
+            return False
+        try:
+            linked_value = handoff['linked_pc']
+            linked_pc = (int(linked_value, 0) if isinstance(linked_value, str)
+                         else int(linked_value))
+            live = bytes.fromhex(handoff['bytes_hex'])
+            expected = bytearray(phase53_kernel_source(linked_pc, len(live)))
+        except (KeyError, TypeError, ValueError):
+            return False
+        substituted = False
+        for site in RETYPE_HVC_SITES:
+            offset = site.linked_pc - linked_pc
+            if 0 <= offset <= len(expected) - 4:
+                expected[offset:offset + 4] = struct.pack('<I', site.hvc_word)
+                substituted = True
+        return substituted and live == expected
+
+    def phase53_set_retype_hvcs(roots, install):
+        pending = []
+        for site in RETYPE_HVC_SITES:
+            runtime_pc = phase53_kernel_runtime(site.linked_pc)
+            leaf, before = phase53_read_live(roots, runtime_pc, 4)
+            source = phase53_kernel_source(site.linked_pc, 4)
+            expected_hvc = struct.pack('<I', site.hvc_word)
+            expected_source = struct.pack('<I', site.source_word)
+            replacement = expected_hvc if install else expected_source
+            allowed_before = ((expected_source,) if install else
+                              (expected_hvc, expected_source))
+            if before not in allowed_before or source != expected_source:
+                raise ValueError('Phase53 %s HVC %s gate rejected' %
+                                 (site.phase,
+                                  'install' if install else 'restore'))
+            pending.append((site, runtime_pc, leaf, before, replacement))
+
+        try:
+            for site, runtime_pc, leaf, before, replacement in pending:
+                if before != replacement:
+                    iface.writemem(leaf['pa'], replacement)
+                    p.dc_cvau(leaf['pa'], 4)
+                    p.ic_ivau(leaf['pa'], 4)
+            records = []
+            for site, runtime_pc, leaf, before, replacement in pending:
+                after = iface.readmem(leaf['pa'], 4)
+                if after != replacement:
+                    raise ValueError('Phase53 %s HVC %s readback failed' %
+                                     (site.phase,
+                                      'install' if install else 'restore'))
+                records.append(dict(
+                    phase=site.phase, runtime_pc=hex(runtime_pc),
+                    pa=hex(leaf['pa']), before_hex=before.hex(),
+                    after_hex=after.hex(),
+                    operation='install' if install else 'restore',
+                    write_required=before != replacement,
+                    complete=True))
+            return records
+        except Exception as operation_error:
+            if install:
+                try:
+                    phase53_set_retype_hvcs(roots, False)
+                except Exception as rollback_error:
+                    raise RuntimeError('%s; idempotent rollback failed: %s' %
+                                       (operation_error, rollback_error)) from operation_error
+            raise operation_error
+
+    def phase53_install_retype_hvcs(roots):
+        return phase53_set_retype_hvcs(roots, True)
+
+    def phase53_restore_retype_hvcs(roots):
+        return phase53_set_retype_hvcs(roots, False)
     def pause_guard(guard, flag, context):
         """Hold a side-effect-free policy rejection for a local decision; True means retry with the flag enabled."""
         if guard_pause is None or getattr(a, flag):
@@ -668,6 +908,12 @@ def run_probe(a, report, save, capture):
             if a.xnu_tpidr_gl2_fast_shadow:
                 report['xnu_tpidr_gl2_fast_shadow']['teardown_skipped'] = (
                     'hv_start did not return; target state unknown, no proxy I/O')
+            if getattr(a, 'xnu_gl1_fast_redirect', False):
+                report['xnu_gl1_fast_redirect']['teardown_skipped'] = (
+                    'hv_start did not return; target state unknown, no proxy I/O')
+            if getattr(a, 'xnu_phase53_retype_hvc_fast_path', False):
+                report['xnu_phase53_retype_hvc_fast_path']['restoration_skipped'] = (
+                    'hv_start did not return; target state unknown, no proxy I/O')
             if watchdog is not None:
                 report['stop_reason'] = 'guest-unresponsive'
             try:
@@ -675,6 +921,47 @@ def run_probe(a, report, save, capture):
             finally:
                 iface.dev.close()
         else:
+            if getattr(a, 'xnu_phase53_retype_hvc_fast_path', False):
+                hvc_report = report['xnu_phase53_retype_hvc_fast_path']
+                hvc_report.update(
+                    completed_calls=phase53_retype_hvc_state.get('completed_calls', 0),
+                    final_stage=phase53_retype_hvc_state.get('stage'),
+                    failed=phase53_retype_hvc_state.get(
+                        'failed', hvc_report.get('failed', False)),
+                    patches_live=phase53_retype_hvc_state.get('patches_live', False))
+                if phase53_retype_hvc_state.get('machine') is not None:
+                    hvc_report['final_state_machine'] = (
+                        phase53_retype_hvc_state['machine'].snapshot())
+                if phase53_retype_hvc_state.get('current_call') is not None:
+                    hvc_report['current_call'] = phase53_retype_hvc_state['current_call']
+                if phase53_retype_hvc_state.get('patches_live'):
+                    try:
+                        restoration = phase53_restore_retype_hvcs(
+                            phase53_retype_hvc_state['roots'])
+                        phase53_retype_hvc_state['patches_live'] = False
+                        hvc_report.update(
+                            enabled=False, patches_live=False,
+                            cleanup_restoration=restoration,
+                            restored_at_teardown=True)
+                    except Exception as restoration_error:
+                        hvc_report['restoration_error'] = str(restoration_error)
+                        report.setdefault(
+                            'cleanup_error',
+                            'Phase53 retype HVC restoration failed: ' +
+                            str(restoration_error))
+            if getattr(a, 'xnu_gl1_fast_redirect', False):
+                try:
+                    teardown = gl1_fast_redirect.disable()
+                    report['xnu_gl1_fast_redirect']['teardown'] = teardown
+                    report['xnu_gl1_fast_redirect']['disabled_at_teardown'] = True
+                    report['xnu_gl1_fast_redirect']['final_aliases'] = {
+                        name: u.mrs(HV.MSR_REDIRECTS[sysreg_fwd[name]])
+                        for name in Gl1FastRedirect.TAG_NAMES}
+                except Exception as teardown_error:
+                    report['xnu_gl1_fast_redirect']['teardown_error'] = str(teardown_error)
+                    report.setdefault(
+                        'cleanup_error', 'GL1 fast-redirect teardown failed: ' +
+                        str(teardown_error))
             if a.xnu_txm_sstep_fast_path:
                 try:
                     teardown = txm_sstep_fast_path.disable()

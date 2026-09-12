@@ -6,28 +6,36 @@
 
 def handle_permission_window(run, event_state):
     event_state.ctx = event_state.native_ctx
-    event_state.index, (event_state._, event_state._, event_state._, event_state.operation) = event_state.native_xnu_pperm_site
+    event_state.site_index, (event_state.window_type, event_state.step,
+        event_state._, event_state._, event_state._,
+        event_state.operation) = event_state.native_xnu_pperm_site
     event_state.event.update(kind='xnu-pperm-guest-window', pc=event_state.ctx.elr,
                  esr=int(event_state.ctx.esr), spsr=int(event_state.ctx.spsr), regs=list(event_state.ctx.regs),
                  far=event_state.ctx.far, sp=list(event_state.ctx.sp), operation=event_state.operation,
-                 site_index=event_state.index)
-    if event_state.index == 0 and run.xnu_pperm_state['step'] == 4:
+                 site_index=event_state.site_index,
+                 window_type=event_state.window_type,
+                 window_step=event_state.step)
+    if event_state.step == 0 and run.xnu_pperm_state['step'] == 4:
         if (run.xnu_pperm_state['modified'] or
                 run.xnu_pperm_state['completed'] != run.xnu_pperm_state['started']):
             raise ValueError('XNU PPERM prior window incomplete')
         if run.xnu_pperm_state['completed'] >= run.a.xnu_pperm_guest_window_limit:
             raise run.PpermWindowLimit('XNU PPERM guest window limit exhausted')
         run.xnu_pperm_state['step'] = 0
-    if event_state.index != run.xnu_pperm_state['step']:
+    if event_state.step != run.xnu_pperm_state['step']:
         raise ValueError('XNU PPERM callback order mismatch')
+    if event_state.step == 0:
+        run.xnu_pperm_state['window_type'] = event_state.window_type
+    elif run.xnu_pperm_state['window_type'] != event_state.window_type:
+        raise ValueError('XNU PPERM window type mismatch')
     event_state.reg = run.HV.MSR_REDIRECTS[run.SPRR_PPERM_EL1]
     if event_state.operation.startswith('read'):
         event_state.raw = int(run.u.mrs(event_state.reg))
         event_state.nibble = (event_state.raw >> 8) & 0xf
-        event_state.expected = 0xa if event_state.index == 0 else 0xb
+        event_state.expected = 0xa if event_state.step == 0 else 0xb
         if event_state.nibble != event_state.expected:
             raise ValueError('XNU PPERM read nibble mismatch')
-        if event_state.index == 0:
+        if event_state.step == 0:
             if run.xnu_pperm_state['previous'] is None:
                 run.xnu_pperm_state['previous'] = event_state.raw
             elif event_state.raw != run.xnu_pperm_state['previous']:
@@ -37,36 +45,41 @@ def handle_permission_window(run, event_state):
             event_state.expected_raw = ((run.xnu_pperm_state['previous'] & ~(0xf << 8))
                             | (0xb << 8))
             if event_state.raw != event_state.expected_raw:
-                raise ValueError('XNU PPERM post-copy full value mismatch')
+                raise ValueError('XNU PPERM post-operation full value mismatch')
             run.xnu_pperm_state['modified'] = True
-            run.report['xnu_pperm_guest_window']['memcpy_crossed'] = True
-            run.report['xnu_pperm_guest_window']['memcpy_crossed_windows'] += 1
+            run.report['xnu_pperm_guest_window'][event_state.window_type + '_crossed'] = True
+            run.report['xnu_pperm_guest_window'][event_state.window_type + '_crossed_windows'] += 1
         event_state.ctx.regs[8] = event_state.raw
         event_state.readback = event_state.raw
     else:
         event_state.requested = int(event_state.ctx.regs[8])
         event_state.previous = run.xnu_pperm_state['previous']
-        event_state.expected = ((event_state.previous & ~(0xf << 8)) | ((0xb if event_state.index == 1 else 0xa) << 8))
+        event_state.expected = ((event_state.previous & ~(0xf << 8)) | ((0xb if event_state.step == 1 else 0xa) << 8))
         if event_state.requested != event_state.expected:
             raise ValueError('XNU PPERM write value mismatch')
-        if event_state.index == 1:
+        if event_state.step == 1:
             run.xnu_pperm_state['modified'] = True
         run.u.msr(event_state.reg, event_state.requested)
         event_state.readback = int(run.u.mrs(event_state.reg))
         if event_state.readback != event_state.requested:
             raise ValueError('XNU PPERM full readback mismatch')
-        if event_state.index == 3:
+        if event_state.step == 3:
             run.xnu_pperm_state['modified'] = False
             run.xnu_pperm_state['completed'] += 1
+            run.xnu_pperm_state['window_type'] = None
     run.xnu_pperm_state['step'] += 1
     run.report['xnu_pperm_guest_window']['started_windows'] = run.xnu_pperm_state['started']
     run.report['xnu_pperm_guest_window']['completed_windows'] = run.xnu_pperm_state['completed']
     run.report['xnu_pperm_guest_window']['sequence'].append(dict(
-        step=event_state.index, operation=event_state.operation, raw=event_state.readback,
+        site_index=event_state.site_index, window_type=event_state.window_type,
+        step=event_state.step, operation=event_state.operation, raw=event_state.readback,
         index2_nibble=(event_state.readback >> 8) & 0xf))
     event_state.ctx.elr += 0  # HVC reports the following PC already
     run.iface.writemem(event_state.info, run.ExcInfo.build(event_state.ctx))
-    event_state.event.update(raw=event_state.readback, memcpy_crossed=event_state.index >= 2,
+    event_state.event.update(raw=event_state.readback,
+                 crossed=event_state.step >= 2,
+                 memcpy_crossed=(event_state.window_type == 'memcpy' and event_state.step >= 2),
+                 atomic_crossed=(event_state.window_type == 'atomic' and event_state.step >= 2),
                  window=run.xnu_pperm_state['started'])
     event_state.ret = run.EXC_RET.HANDLED
 

@@ -84,3 +84,25 @@ not identify or verify the corresponding Stage-1 descriptor write, prove that
 the page is linked into a live table hierarchy, establish general dynamic
 page-table services, complete kernel bring-up, boot macOS, or support the GPU.
 Large raw run artifacts are intentionally excluded from this repository.
+
+## Three-site HVC survey accelerator — attempt 143
+
+The survey feedback path now has an opt-in, late-live accelerator for three
+source-pinned instructions in the common retype wrapper: PRE at linked
+`0xfffffe000bf7a4b8`, GENTER at `0xfffffe000bf7a4c0`, and POST at
+`0xfffffe000bf7a4cc`. The isolated live image is patched only after the
+allocation proof and wrapper/source/readback gates pass. Strict ordering,
+caller-frame and FTE checks, exact native ERET continuations, seven GL1 counter
+deltas, bounded call counts, idempotent restoration, and teardown disablement
+remain mandatory.
+
+Attempt 143 installed and read back all three exact HVC words, accepted six
+single-step-off native world continuations, and completed the PRE callback. It
+then stopped cleanly at the GENTER gate because the first helper return check
+compared the full pointer-authenticated link register. No retype call completed,
+so this run adds no descriptor, leaf, or AIC evidence. The result narrows the
+next experiment to a source- and range-pinned authenticated-return comparison;
+it does not relax any ownership, FTE, counter, or cleanup gate. All three live
+words were restored and both firmware accelerators were disabled before exit.
+Only this bounded summary is published; the run configuration, report, event
+journal, device details, and payloads remain outside Git.

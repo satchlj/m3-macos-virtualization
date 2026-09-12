@@ -3,7 +3,35 @@
 # See repository LICENSES.md and THIRD_PARTY_NOTICES.md.
 """Existing platform contracts, compatibility transforms, and restore helpers."""
 import struct
+from phase53_retype_hvc import RETYPE_HVC_SITES, source_pinned_rewrite_plan
 from .constants import *
+
+def verify_gl1_fast_rewrite(source_chunk, rewritten_chunk, segment_fileoff,
+                            tags):
+    """Prove the pinned seven source words became the exact configured HVCs."""
+    sites = []
+    for name, post_offset, original_word, register, imm_low in GL1_FAST_SITE_CONTRACT:
+        file_offset = post_offset - 4
+        chunk_offset = file_offset - segment_fileoff
+        if not 0 <= chunk_offset <= len(source_chunk) - 4:
+            raise ValueError('GL1 fast-redirect site lies outside __TEXT_EXEC: ' + name)
+        observed_original = struct.unpack_from('<I', source_chunk, chunk_offset)[0]
+        if observed_original != original_word:
+            raise ValueError('GL1 fast-redirect source drift at %s: %#x != %#x' %
+                             (name, observed_original, original_word))
+        imm = tags[register] | imm_low
+        expected_hvc = 0xd4000002 | (imm << 5)
+        observed_hvc = struct.unpack_from('<I', rewritten_chunk, chunk_offset)[0]
+        if observed_hvc != expected_hvc:
+            raise ValueError('GL1 fast-redirect rewrite drift at %s: %#x != %#x' %
+                             (name, observed_hvc, expected_hvc))
+        sites.append(dict(
+            name=name, register=register,
+            instruction_pc=hex(FC_IMAGE_BASE + file_offset),
+            post_hvc_pc=hex(FC_IMAGE_BASE + post_offset),
+            original_word=hex(original_word), hvc_imm=hex(imm),
+            rewritten_word=hex(expected_hvc)))
+    return sites
 
 def xnu_dockchannel_uart_mapping(reg_base, reg_size, compatible,
                                  page_size=0x4000):
@@ -144,14 +172,43 @@ def patch_xnu_agtcnt_rdir(chunk, segment, enabled):
 def patch_xnu_pperm_guest_window(chunk, segment, enabled):
     if not enabled: return chunk, []
     out, records = chunk, []
-    for pc, word, tag, operation in FC_XNU_PPERM_SITES:
+    for window_type, step, pc, word, tag, operation in FC_XNU_PPERM_SITES:
         off = pc - segment['va']
         if bytes(out[off:off+4]) != struct.pack('<I', word):
-            raise ValueError('Pinned XNU PPERM instruction mismatch: '+operation)
+            raise ValueError('Pinned XNU PPERM instruction mismatch: '
+                             + window_type + '-' + operation)
         replacement = struct.pack('<I', 0xd4000002 | (tag << 5))
         out = out[:off] + replacement + out[off+4:]
-        records.append(dict(linked_va=hex(pc), original=hex(word), replacement=hex(struct.unpack('<I',replacement)[0]), operation=operation))
+        records.append(dict(window_type=window_type, step=step,
+            linked_va=hex(pc), original=hex(word),
+            replacement=hex(struct.unpack('<I',replacement)[0]), operation=operation))
     return out, records
+
+
+def patch_xnu_phase53_retype_hvc(chunk, segment, enabled):
+    """Plan only the three pinned wrapper MOV rewrites after full verification."""
+    if not enabled:
+        return chunk, []
+
+    def read_linked_word(linked_pc):
+        offset = linked_pc - segment['va']
+        raw = bytes(chunk[offset:offset + 4]) if 0 <= offset <= len(chunk) - 4 else b''
+        return struct.unpack('<I', raw)[0] if len(raw) == 4 else -1
+
+    plan = source_pinned_rewrite_plan(read_linked_word)
+    out = bytearray(chunk)
+    records = []
+    for linked_pc, source_word, hvc_word in plan:
+        offset = linked_pc - segment['va']
+        struct.pack_into('<I', out, offset, hvc_word)
+        site = next(item for item in RETYPE_HVC_SITES
+                    if item.linked_pc == linked_pc)
+        records.append(dict(
+            phase=site.phase, linked_va=hex(linked_pc),
+            runtime_va=hex(site.runtime_pc), post_hvc_pc=hex(site.post_hvc_pc),
+            original=hex(source_word), replacement=hex(hvc_word),
+            hvc_immediate=hex(site.hvc_immediate)))
+    return bytes(out), records
 
 
 def restore_xnu_agtcnt_rdir(access, register, previous, guest_returned):
@@ -268,6 +325,7 @@ def patch_xnu_pmcr1_bank_collapse(chunk, segment, enabled):
 
 
 __all__ = (
+    'verify_gl1_fast_rewrite',
     'xnu_dockchannel_uart_mapping',
     'xnu_dockchannel_uart_catalog',
     'match_xnu_dockchannel_uart',
@@ -278,6 +336,7 @@ __all__ = (
     'emit_memory_map_regions',
     'patch_xnu_agtcnt_rdir',
     'patch_xnu_pperm_guest_window',
+    'patch_xnu_phase53_retype_hvc',
     'restore_xnu_agtcnt_rdir',
     'restore_xnu_pperm_guest_window',
     'restore_xnu_cntp_ctl',

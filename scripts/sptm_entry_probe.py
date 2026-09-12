@@ -8,7 +8,7 @@
 from sptm_probe.constants import *
 from sptm_probe.adapters import (
     PpermWindowLimit,
-    TpidrGl2FastShadow,
+    TpidrGl2FastShadow, Gl1FastRedirect,
     Vel2StepFilter,
     audit_and_disable_tpidr_gl2_fast_shadow,
 )

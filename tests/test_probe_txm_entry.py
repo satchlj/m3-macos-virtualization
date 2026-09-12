@@ -6,11 +6,162 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 from probe_control_support import ProbeControlFixture
 import os
+import struct
 import unittest
+from phase53_retype_hvc import (GENTER_SITE, POST_SITE, PRE_SITE,
+                                RETYPE_HVC_SITES, RetypeHvcStateMachine)
 
 
 @unittest.skipUnless(os.environ.get('VEL2_CHECKOUT'), 'Set VEL2_CHECKOUT for callback tests')
 class ProbeTxmEntryTests(ProbeControlFixture, unittest.TestCase):
+
+    def _activate_phase53_retype_hvc_for_unrelated_eret(self,
+                                                        continuations=None):
+        ns = self.endpoint.namespace
+        ns['RETYPE_HVC_SITES'] = RETYPE_HVC_SITES
+        runtime_slide = (RETYPE_HVC_SITES[0].runtime_pc -
+                         RETYPE_HVC_SITES[0].linked_pc)
+        source_words = {site.linked_pc: struct.pack('<I', site.source_word)
+                        for site in RETYPE_HVC_SITES}
+        ns['phase53_kernel_runtime'] = lambda linked: linked + runtime_slide
+        ns['phase53_kernel_source'] = lambda linked, size: (
+            source_words[linked] if size == 4 else b'')
+        ns['a'].xnu_phase53_retype_hvc_fast_path = True
+        self.endpoint.hardware.values.update({
+            self.s.TTBR0_EL12: self.tables.low,
+            self.s.TTBR1_EL12: self.tables.high,
+        })
+        machine = RetypeHvcStateMachine(max_calls=64)
+        machine.observe(PRE_SITE.post_hvc_pc, PRE_SITE.hvc_word)
+        machine.observe(GENTER_SITE.post_hvc_pc, GENTER_SITE.hvc_word)
+        records = list(continuations or [])
+        ns['phase53_retype_hvc_state'].update(
+            active=True, mode='three-site-hvc', patches_live=True,
+            roots={'ttbr0': self.tables.low, 'ttbr1': self.tables.high},
+            stage='hvc-post', filter_disabled=True,
+            gl1_activation_verified=True, machine=machine,
+            native_continuations=records, continuation_limit=128,
+            repeated_continuation_limit=64)
+        self.endpoint.report['xnu_phase53_retype_hvc_fast_path'] = dict(
+            requested=True, activated=True, enabled=True,
+            current_stage='POST', expected_phase='POST',
+            native_continuation_limit=128,
+            native_continuations=list(records))
+        return ns
+
+    def _phase53_patched_wrapper_return_classification(self, ns, drift=False):
+        linked_pc = POST_SITE.linked_pc - 4
+        source = (struct.pack('<' + 'I' * 4,
+                              *ns['FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS'][6:])
+                  + bytes.fromhex('112233445566778899aabbccddeeff00'))
+        live = bytearray(source)
+        struct.pack_into('<I', live, POST_SITE.linked_pc - linked_pc,
+                         POST_SITE.hvc_word)
+        if drift:
+            live[0] ^= 1
+        ns['phase53_kernel_source'] = lambda linked, size: (
+            source[:size] if linked == linked_pc and size <= len(source)
+            else b'')
+        return dict(
+            image='kernelcache', segment='__TEXT_EXEC',
+            target_pc=hex(POST_SITE.runtime_pc - 4), pa=hex(0x20000000),
+            linked_pc=hex(linked_pc), entry_matches=False, bytes_match=False,
+            bytes_hex=bytes(live).hex(), instructions_executed=False)
+
+    def test_phase53_retype_hvc_relays_exact_unrelated_eret_natively(self):
+        ns = self._activate_phase53_retype_hvc_for_unrelated_eret()
+        _, after = self._txm_context_entry_gate(
+            handler='cmd1-completion-trace', x16=0)
+
+        self.assertEqual(self.endpoint.replies[-1],
+                         int(self.endpoint.EXC_RET.HANDLED),
+                         self.endpoint.report)
+        self.assertEqual(after.elr, ns['FC_XNU_TXM_CONTEXT_TARGET'])
+        self.assertFalse(after.spsr.SS)
+        self.assertFalse(self.endpoint.hardware.values[self.s.MDSCR_EL1] & 1)
+        self.assertNotIn('stop_reason', self.endpoint.report)
+        self.assertFalse(ns['txm_context_step_state']['active'])
+        self.assertNotIn('xnu_txm_context_entry_one_step',
+                         self.endpoint.report)
+        self.assertEqual(self.endpoint.report['eret_classifications'][-1][
+            'decision'], 'phase53-retype-hvc-native-continuation')
+        continuations = self.endpoint.report[
+            'xnu_phase53_retype_hvc_fast_path']['native_continuations']
+        self.assertEqual(len(continuations), 1)
+        self.assertTrue(continuations[0]['complete'])
+        self.assertEqual(continuations[0]['target_pc'],
+                         hex(ns['FC_XNU_TXM_CONTEXT_TARGET']))
+        self.assertEqual(continuations[0]['source_hex'], struct.pack(
+            '<I', ns['FC_XNU_TXM_CONTEXT_ERET_WORD']).hex())
+        self.assertEqual(continuations[0]['resume_mode'],
+                         'native-ss-clear-filter-off')
+        self.assertFalse(any(call[0] == 'msr' and
+                             call[1] == self.s.MDSCR_EL1 and call[2] & 1
+                             for call in self.endpoint.hardware.calls))
+
+    def test_phase53_retype_hvc_accepts_patched_kernel_wrapper_return(self):
+        ns = self._activate_phase53_retype_hvc_for_unrelated_eret()
+        classification = self._phase53_patched_wrapper_return_classification(ns)
+        _, after = self._txm_context_entry_gate(
+            handler='cmd1-completion-trace', target=POST_SITE.runtime_pc - 4,
+            classification=classification)
+
+        self.assertEqual(self.endpoint.replies[-1],
+                         int(self.endpoint.EXC_RET.HANDLED),
+                         self.endpoint.report)
+        self.assertEqual(after.elr, POST_SITE.runtime_pc - 4)
+        self.assertFalse(after.spsr.SS)
+        self.assertFalse(self.endpoint.hardware.values[self.s.MDSCR_EL1] & 1)
+        self.assertNotIn('stop_reason', self.endpoint.report)
+        continuation = self.endpoint.report[
+            'xnu_phase53_retype_hvc_fast_path']['native_continuations'][-1]
+        self.assertTrue(continuation['checks']['target_source_match'])
+        self.assertEqual(continuation['target_pc'],
+                         hex(POST_SITE.runtime_pc - 4))
+        self.assertEqual(self.endpoint.report['eret_classifications'][-1][
+            'decision'], 'phase53-retype-hvc-native-continuation')
+        self.assertNotIn('xnu_txm_context_entry_one_step', self.endpoint.report)
+
+    def test_phase53_retype_hvc_rejects_wrapper_return_byte_drift(self):
+        ns = self._activate_phase53_retype_hvc_for_unrelated_eret()
+        classification = self._phase53_patched_wrapper_return_classification(
+            ns, drift=True)
+        before, after = self._txm_context_entry_gate(
+            handler='cmd1-completion-trace', target=POST_SITE.runtime_pc - 4,
+            classification=classification)
+
+        self.assertEqual(self.endpoint.replies[-1],
+                         int(self.endpoint.EXC_RET.EXIT_GUEST))
+        self.assertEqual(self.endpoint.codec.build(after),
+                         self.endpoint.codec.build(before))
+        self.assertEqual(self.endpoint.report['stop_reason'],
+                         'phase53-retype-hvc-world-transition-gate-rejected')
+        rejection = self.endpoint.report[
+            'xnu_phase53_retype_hvc_fast_path'][
+                'native_continuation_rejection']
+        self.assertFalse(rejection['checks']['target_source_match'])
+        self.assertFalse(ns['phase53_retype_hvc_state']['active'])
+        self.assertTrue(ns['phase53_retype_hvc_state']['failed'])
+        self.assertNotIn('xnu_txm_context_entry_one_step', self.endpoint.report)
+
+    def test_phase53_retype_hvc_unrelated_eret_limit_fails_closed(self):
+        ns = self._activate_phase53_retype_hvc_for_unrelated_eret(
+            [dict(complete=True)] * 128)
+        before, after = self._txm_context_entry_gate(
+            handler='cmd1-completion-trace', x16=0)
+
+        self.assertEqual(self.endpoint.replies[-1],
+                         int(self.endpoint.EXC_RET.EXIT_GUEST))
+        self.assertEqual(self.endpoint.codec.build(after),
+                         self.endpoint.codec.build(before))
+        self.assertEqual(self.endpoint.report['stop_reason'],
+                         'phase53-retype-hvc-native-continuation-limit-reached')
+        self.assertTrue(ns['phase53_retype_hvc_state']['active'])
+        self.assertFalse(ns['phase53_retype_hvc_state'].get('failed', False))
+        self.assertEqual(len(self.endpoint.report[
+            'xnu_phase53_retype_hvc_fast_path']['native_continuations']), 128)
+        self.assertFalse(ns['txm_context_step_state']['active'])
+        self.assertNotIn('xnu_txm_context_entry_one_step', self.endpoint.report)
 
     def test_txm_context_entry_gate_executes_exactly_one_mov_sp(self):
         ns = self.endpoint.namespace

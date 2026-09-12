@@ -282,3 +282,549 @@ def handle_bounded_step_limit(run, event_state):
     else:
         run.report['xnu_phase53_retype_survey']['rejection'] = event_state.record
         run.report['stop_reason'] = 'phase53-retype-survey-seek-entry-gate-rejected'
+
+
+def handle_hvc_site(run, event_state):
+    native_ctx = event_state.native_ctx
+    native_phase53_retype_hvc_site = event_state.native_phase53_retype_hvc_site
+    phase53_retype_hvc_state = run.phase53_retype_hvc_state
+    phase53_kernel_runtime = run.phase53_kernel_runtime
+    phase53_kernel_source = run.phase53_kernel_source
+    phase53_read_live = run.phase53_read_live
+    phase53_wrapper_snapshot = run.phase53_wrapper_snapshot
+    phase53_capture_fte = run.phase53_capture_fte
+    phase53_fte_checks = run.phase53_fte_checks
+    phase53_restore_retype_hvcs = run.phase53_restore_retype_hvcs
+    txm_sstep_fast_path = run.txm_sstep_fast_path
+    gl1_fast_redirect = run.gl1_fast_redirect
+    Gl1FastRedirect = run.Gl1FastRedirect
+    struct = run.struct
+    base, guest_size, PAGE = run.base, run.guest_size, run.PAGE
+    report, a = run.report, run.a
+    iface, info, event = run.iface, event_state.info, event_state.event
+    u, MDSCR_EL1, EXC_RET, ExcInfo = run.u, run.MDSCR_EL1, run.EXC_RET, run.ExcInfo
+    TTBR0_EL12, TTBR1_EL12 = run.TTBR0_EL12, run.TTBR1_EL12
+    FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY_LINKED = run.FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY_LINKED
+    FC_XNU_RUNTIME_TEXT = run.FC_XNU_RUNTIME_TEXT
+    FC_XNU_PHASE53_RETYPE_SURVEY_TARGET_TYPES = run.FC_XNU_PHASE53_RETYPE_SURVEY_TARGET_TYPES
+    FC_XNU_PHASE53_PRIMARY_RETYPE_CALL = run.FC_XNU_PHASE53_PRIMARY_RETYPE_CALL
+    FC_XNU_PHASE53_PRIMARY_RETYPE_RETURN = run.FC_XNU_PHASE53_PRIMARY_RETYPE_RETURN
+    FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB = run.FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB
+    FC_XNU_PHASE53_TWIG_BRANCH = run.FC_XNU_PHASE53_TWIG_BRANCH
+    FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS = run.FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS
+    FC_SPTM_RUNTIME_TEXT = run.FC_SPTM_RUNTIME_TEXT
+    ctx = native_ctx
+    state = phase53_retype_hvc_state
+    site = native_phase53_retype_hvc_site
+    roots = state['roots']
+    phase = site.phase
+    runtime_pc = phase53_kernel_runtime(site.linked_pc)
+    checks = {
+        'state_active': state.get('active') is True,
+        'mode': state.get('mode') == 'three-site-hvc',
+        'expected_stage': state.get('stage') == {
+            'PRE': 'hvc-pre', 'GENTER': 'hvc-genter',
+            'POST': 'hvc-post'}[phase],
+        'exact_esr': int(ctx.esr) ==
+            (0x5a000000 | site.hvc_immediate),
+        'exact_post_pc': int(ctx.elr) == runtime_pc + 4,
+        'el1t': (int(ctx.spsr) & 15) == 4,
+        'saved_ss_clear': not bool(int(ctx.spsr) & (1 << 21)),
+        'physical_ss_clear': not bool(int(u.mrs(MDSCR_EL1)) & 1),
+        'translation_roots_stable': (
+            int(u.mrs(TTBR0_EL12)) == roots['ttbr0'] and
+            int(u.mrs(TTBR1_EL12)) == roots['ttbr1']),
+    }
+    record = dict(
+        phase=phase, pc=hex(int(ctx.elr)),
+        source_pc=hex(runtime_pc), esr=hex(int(ctx.esr)),
+        spsr=hex(int(ctx.spsr)))
+    try:
+        source = phase53_kernel_source(site.linked_pc, 4)
+        code_leaf, live = phase53_read_live(
+            roots, runtime_pc, 4)
+        wrapper = phase53_wrapper_snapshot(roots)
+        checks.update(
+            source_word=source == struct.pack('<I', site.source_word),
+            live_hvc=live == struct.pack('<I', site.hvc_word),
+            code_level_three=code_leaf['level'] == 3,
+            code_access_flag=code_leaf['access_flag'],
+            wrapper_source_exact=wrapper['source_exact'],
+            wrapper_live_exact=wrapper['live_exact'],
+            wrapper_level_three=wrapper['level_three'],
+            wrapper_access_flag=wrapper['access_flag'])
+        record.update(
+            source_hex=source.hex(), live_hex=live.hex(),
+            code_pa=hex(code_leaf['pa']), wrapper=wrapper)
+
+        if phase == 'PRE':
+            frame_sp = int(ctx.sp[0])
+            frame_leaf, frame = phase53_read_live(
+                roots, frame_sp, 16)
+            saved_fp, saved_lr = struct.unpack('<QQ', frame)
+            args = tuple(int(ctx.regs[index]) for index in range(4))
+            pac_mask = (1 << 40) - 1
+            wrapper_runtime = phase53_kernel_runtime(
+                FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY_LINKED)
+            caller_return = ((FC_XNU_RUNTIME_TEXT[0] & ~pac_mask) |
+                             (int(ctx.regs[30]) & pac_mask))
+            caller_callsite = caller_return - 4
+            caller_linked = (
+                FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY_LINKED +
+                caller_callsite - wrapper_runtime)
+            caller_source = phase53_kernel_source(caller_linked, 4)
+            caller_leaf, caller_live = phase53_read_live(
+                roots, caller_callsite, 4)
+            caller_word = struct.unpack('<I', caller_source)[0]
+            immediate = caller_word & 0x3ffffff
+            if immediate & (1 << 25):
+                immediate -= 1 << 26
+            caller_target = caller_callsite + (immediate << 2)
+            if (args[0] == 0 or args[0] & (PAGE - 1) or
+                    not base <= args[0] < base + guest_size):
+                raise ValueError(
+                    'Phase53 HVC physical address is not an owned page')
+            if args[1] > 0xff or args[2] > 0xff:
+                raise ValueError(
+                    'Phase53 HVC frame type is not u8')
+            fte_before = phase53_capture_fte(roots, args[0])
+            checks.update(
+                frame_sp_aligned=frame_sp & 15 == 0,
+                frame_level_three=frame_leaf['level'] == 3,
+                frame_access_flag=frame_leaf['access_flag'],
+                saved_fp_exact=saved_fp == int(ctx.regs[29]),
+                saved_lr_exact=saved_lr == int(ctx.regs[30]),
+                pa_aligned=args[0] & (PAGE - 1) == 0,
+                pa_owned=base <= args[0] < base + guest_size,
+                type_from_u8=args[1] <= 0xff,
+                type_to_u8=args[2] <= 0xff,
+                caller_in_xnu=FC_XNU_RUNTIME_TEXT[0] <=
+                    caller_callsite < FC_XNU_RUNTIME_TEXT[1],
+                caller_source_bl=(caller_word & 0xfc000000) ==
+                    0x94000000,
+                caller_live=caller_live == caller_source,
+                caller_targets_wrapper=caller_target ==
+                    wrapper_runtime,
+                caller_level_three=caller_leaf['level'] == 3,
+                caller_access_flag=caller_leaf['access_flag'])
+            checks.update(phase53_fte_checks(
+                'fte_before', fte_before, args[1]))
+            current_call = dict(
+                index=state['completed_calls'],
+                args=[hex(value) for value in args],
+                pa=hex(args[0]),
+                type_from=hex(args[1] & 0xffffffff),
+                type_to=hex(args[2] & 0xffffffff),
+                flags=hex(args[3]), x30=hex(int(ctx.regs[30])),
+                frame_sp=hex(frame_sp),
+                saved_fp=hex(saved_fp), saved_lr=hex(saved_lr),
+                caller_return=hex(caller_return),
+                caller_callsite=hex(caller_callsite),
+                caller_linked=hex(caller_linked),
+                caller_source_hex=caller_source.hex(),
+                caller_live_hex=caller_live.hex(),
+                frame_table_before=fte_before)
+            record.update(
+                call_index=state['completed_calls'],
+                frame_sp=hex(frame_sp), frame_pa=hex(frame_leaf['pa']),
+                frame_hex=frame.hex(), args=current_call['args'],
+                caller_callsite=hex(caller_callsite),
+                frame_table=fte_before)
+            if not all(checks.values()):
+                raise ValueError('Phase53 PRE HVC gate rejected')
+            transition = state['machine'].observe(
+                int(ctx.elr), struct.unpack('<I', live)[0])
+            current_call['pre'] = dict(
+                **record, checks=checks, complete=True,
+                transition=transition)
+            state['current_call'] = current_call
+            state['calls'].append(current_call)
+            state['stage'] = 'hvc-genter'
+            ctx.regs[29] = frame_sp
+            report['xnu_phase53_retype_survey'].update(
+                current_stage='hvc-genter', calls=list(state['calls']))
+            report['xnu_phase53_retype_hvc_fast_path'].update(
+                current_stage='GENTER', expected_phase='GENTER',
+                state_machine=state['machine'].snapshot(),
+                calls=list(state['calls']))
+            event.update(
+                kind='phase53-retype-hvc-pre', pc=ctx.elr,
+                esr=int(ctx.esr), spsr=int(ctx.spsr),
+                regs=list(ctx.regs), sp=list(ctx.sp), checks=checks)
+            iface.writemem(info, ExcInfo.build(ctx))
+            report.pop('stop_reason', None)
+            event_state.ret = EXC_RET.HANDLED
+        elif phase == 'GENTER':
+            current_call = state['current_call']
+            frame_sp = int(current_call['frame_sp'], 0)
+            frame_leaf, frame = phase53_read_live(
+                roots, frame_sp, 16)
+            saved_fp, saved_lr = struct.unpack('<QQ', frame)
+            expected_args = tuple(int(value, 0) for value in
+                                  current_call['args'])
+            gl1_before = gl1_fast_redirect.status()
+            checks.update(
+                frame_pointer_exact=int(ctx.regs[29]) == frame_sp,
+                frame_level_three=frame_leaf['level'] == 3,
+                frame_access_flag=frame_leaf['access_flag'],
+                saved_fp_unchanged=saved_fp ==
+                    int(current_call['saved_fp'], 0),
+                saved_lr_unchanged=saved_lr ==
+                    int(current_call['saved_lr'], 0),
+                helper1_return=int(ctx.regs[30]) == runtime_pc,
+                args_unchanged=tuple(
+                    int(ctx.regs[index]) for index in range(4)) ==
+                    expected_args,
+                gl1_fast_enabled=gl1_before['enabled'])
+            record.update(
+                call_index=current_call['index'],
+                frame_sp=hex(frame_sp), frame_pa=hex(frame_leaf['pa']),
+                frame_hex=frame.hex(),
+                args=[hex(int(ctx.regs[index])) for index in range(4)],
+                gl1_status=gl1_before)
+            if not all(checks.values()):
+                raise ValueError('Phase53 GENTER HVC gate rejected')
+            transition = state['machine'].observe(
+                int(ctx.elr), struct.unpack('<I', live)[0])
+            ctx.regs[16] = 1
+            current_call['gl1_before'] = gl1_before
+            current_call['genter'] = dict(
+                **record, checks=checks, complete=True,
+                transition=transition)
+            state['stage'] = 'hvc-post'
+            report['xnu_phase53_retype_survey'].update(
+                current_stage='hvc-post', calls=list(state['calls']))
+            report['xnu_phase53_retype_hvc_fast_path'].update(
+                current_stage='POST', expected_phase='POST',
+                state_machine=state['machine'].snapshot(),
+                calls=list(state['calls']))
+            event.update(
+                kind='phase53-retype-hvc-genter', pc=ctx.elr,
+                esr=int(ctx.esr), spsr=int(ctx.spsr),
+                regs=list(ctx.regs), sp=list(ctx.sp), checks=checks)
+            iface.writemem(info, ExcInfo.build(ctx))
+            report.pop('stop_reason', None)
+            event_state.ret = EXC_RET.HANDLED
+        else:
+            current_call = state['current_call']
+            frame_sp = int(current_call['frame_sp'], 0)
+            frame_leaf, frame = phase53_read_live(
+                roots, frame_sp, 16)
+            saved_fp, saved_lr = struct.unpack('<QQ', frame)
+            args = tuple(int(value, 0) for value in
+                         current_call['args'])
+            fte_after = phase53_capture_fte(roots, args[0])
+            before = current_call['frame_table_before']
+            gl1_before = current_call['gl1_before']
+            gl1_after = gl1_fast_redirect.status()
+            counter_names = Gl1FastRedirect.STATUS_FIELDS[8:]
+            counter_deltas = {
+                name: gl1_after[name] - gl1_before[name]
+                for name in counter_names}
+            aggregate_deltas = {
+                name: gl1_after[name] - gl1_before[name]
+                for name in ('handled', 'forwarded')}
+            checks.update(
+                frame_pointer_exact=int(ctx.regs[29]) == frame_sp,
+                frame_level_three=frame_leaf['level'] == 3,
+                frame_access_flag=frame_leaf['access_flag'],
+                saved_fp_unchanged=saved_fp ==
+                    int(current_call['saved_fp'], 0),
+                saved_lr_unchanged=saved_lr ==
+                    int(current_call['saved_lr'], 0),
+                helper2_return=int(ctx.regs[30]) == runtime_pc,
+                fte_base_stable=fte_after['fte_base'] ==
+                    before['fte_base'],
+                fte_center_stable=fte_after['center_va'] ==
+                    before['center_va'],
+                gl1_fast_still_enabled=gl1_after['enabled'],
+                gl1_config_unchanged=all(
+                    gl1_after[name] == gl1_before[name] for name in
+                    Gl1FastRedirect.STATUS_FIELDS[:6]),
+                gl1_handled_delta=(gl1_after['handled'] -
+                                   gl1_before['handled']) == 7,
+                gl1_forwarded_delta=(gl1_after['forwarded'] -
+                                     gl1_before['forwarded']) == 0,
+                gl1_each_site_once=all(
+                    delta == 1 for delta in
+                    counter_deltas.values()))
+            checks.update(phase53_fte_checks(
+                'fte_after', fte_after, args[2]))
+            record.update(
+                call_index=current_call['index'],
+                frame_sp=hex(frame_sp), frame_pa=hex(frame_leaf['pa']),
+                frame_hex=frame.hex(), result=hex(int(ctx.regs[0])),
+                frame_table=fte_after, gl1_status=gl1_after,
+                gl1_counter_deltas=counter_deltas,
+                gl1_aggregate_deltas=aggregate_deltas)
+            if not all(checks.values()):
+                raise ValueError('Phase53 POST HVC gate rejected')
+            transition = state['machine'].observe(
+                int(ctx.elr), struct.unpack('<I', live)[0])
+            ctx.sp[0] = frame_sp
+            current_call.update(
+                post=dict(**record, checks=checks, complete=True,
+                          transition=transition),
+                frame_table_after=fte_after,
+                retype_result=hex(int(ctx.regs[0])), complete=True)
+            state['completed_calls'] += 1
+            if (state['machine'].completed_calls !=
+                    state['completed_calls']):
+                raise ValueError(
+                    'Phase53 HVC completion counters diverged')
+            target_type = args[2]
+            target_found = target_type in \
+                FC_XNU_PHASE53_RETYPE_SURVEY_TARGET_TYPES
+            primary_target = args[1] == 0xb and target_type == 0x14
+            current_call.update(
+                target_found=target_found,
+                primary_target=primary_target)
+            state['stage'] = 'hvc-pre'
+            report['xnu_phase53_retype_survey'].update(
+                completed_calls=state['completed_calls'],
+                target_found=target_found,
+                primary_target_found=primary_target,
+                calls=list(state['calls']))
+            report['xnu_phase53_retype_hvc_fast_path'].update(
+                current_stage='PRE', expected_phase='PRE',
+                completed_calls=state['completed_calls'],
+                state_machine=state['machine'].snapshot(),
+                calls=list(state['calls']))
+            event.update(
+                kind='phase53-retype-hvc-post', pc=ctx.elr,
+                esr=int(ctx.esr), spsr=int(ctx.spsr),
+                regs=list(ctx.regs), sp=list(ctx.sp), checks=checks,
+                target_found=target_found,
+                primary_target=primary_target)
+
+            descriptor_target = (
+                target_found and primary_target and args[3] == 3 and
+                int(current_call['caller_callsite'], 0) ==
+                    FC_XNU_PHASE53_PRIMARY_RETYPE_CALL and
+                int(current_call['caller_return'], 0) ==
+                    FC_XNU_PHASE53_PRIMARY_RETYPE_RETURN and
+                a.xnu_phase53_descriptor_bind)
+            terminal = (target_found or
+                        state['completed_calls'] >= state['limit'])
+            if terminal:
+                restoration = phase53_restore_retype_hvcs(roots)
+                state['patches_live'] = False
+                report['xnu_phase53_retype_hvc_fast_path'].update(
+                    enabled=False, patches_restored=True,
+                    restoration=restoration)
+                current_call['hvc_restoration'] = restoration
+            if descriptor_target:
+                report['xnu_phase53_retype_survey']['complete'] = True
+                caller_sp = frame_sp + 16
+                enabled_status = txm_sstep_fast_path.enable(
+                    FC_XNU_RUNTIME_TEXT, FC_SPTM_RUNTIME_TEXT,
+                    FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB, 4,
+                    ctx.elr)
+                state.update(
+                    active=True, stage='epilogue',
+                    filter_disabled=False,
+                    descriptor_pending=dict(
+                        target_pa=args[0], target_fte=fte_after,
+                        caller_sp=caller_sp,
+                        call_index=current_call['index']))
+                report['xnu_phase53_retype_hvc_fast_path'].update(
+                    current_stage='EPILOGUE',
+                    expected_phase='EPILOGUE')
+                current_call['post']['epilogue_enable_status'] = (
+                    enabled_status)
+                event['kind'] = 'phase53-retype-hvc-epilogue-start'
+                ctx.spsr.SS = 1
+                u.msr(MDSCR_EL1, u.mrs(MDSCR_EL1) | 1)
+                iface.writemem(info, ExcInfo.build(ctx))
+                report.pop('stop_reason', None)
+                event_state.ret = EXC_RET.HANDLED
+            elif target_found:
+                state['active'] = False
+                report['xnu_phase53_retype_survey']['complete'] = True
+                report['stop_reason'] = (
+                    'phase53-retype-survey-target-reached')
+            elif state['completed_calls'] >= state['limit']:
+                state['active'] = False
+                report['xnu_phase53_retype_survey'].update(
+                    complete=True, bounded_no_target=True,
+                    limit_reached=True)
+                report['stop_reason'] = (
+                    'phase53-retype-survey-call-limit-reached')
+            else:
+                ctx.spsr.SS = 0
+                u.msr(MDSCR_EL1, u.mrs(MDSCR_EL1) & ~1)
+                iface.writemem(info, ExcInfo.build(ctx))
+                report.pop('stop_reason', None)
+                event_state.ret = EXC_RET.HANDLED
+    except Exception as retype_hvc_error:
+        checks['gate_readback'] = False
+        record.update(checks=checks, complete=False,
+                      error=str(retype_hvc_error))
+        state['active'] = False
+        state['failed'] = True
+        state.get('current_call', {}).setdefault(
+            phase.lower(), record)
+        report['xnu_phase53_retype_hvc_fast_path'].update(
+            failed=True, patches_live=state.get('patches_live'),
+            rejection=record,
+            state_machine=(state['machine'].snapshot()
+                if state.get('machine') is not None else None))
+        report['xnu_phase53_retype_survey']['rejection'] = record
+        report['stop_reason'] = (
+            'phase53-retype-hvc-' + phase.lower() +
+            '-gate-rejected')
+
+
+def handle_hvc_epilogue(run, event_state):
+    native_ctx = event_state.native_ctx
+    phase53_retype_hvc_state = run.phase53_retype_hvc_state
+    phase53_descriptor_bind_state = run.phase53_descriptor_bind_state
+    phase53_kernel_runtime = run.phase53_kernel_runtime
+    phase53_kernel_source = run.phase53_kernel_source
+    phase53_read_live = run.phase53_read_live
+    phase53_wrapper_snapshot = run.phase53_wrapper_snapshot
+    txm_sstep_fast_path = run.txm_sstep_fast_path
+    struct, report = run.struct, run.report
+    iface, info, event = run.iface, event_state.info, event_state.event
+    u, MDSCR_EL1, EXC_RET, ExcInfo = run.u, run.MDSCR_EL1, run.EXC_RET, run.ExcInfo
+    FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_LINKED = run.FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_LINKED
+    FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_WORD = run.FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_WORD
+    FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS = run.FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS
+    FC_VEL2_STEP_FILTER_TERMINAL = run.FC_VEL2_STEP_FILTER_TERMINAL
+    FC_XNU_RUNTIME_TEXT = run.FC_XNU_RUNTIME_TEXT
+    FC_SPTM_RUNTIME_TEXT = run.FC_SPTM_RUNTIME_TEXT
+    FC_XNU_PHASE53_TWIG_BRANCH = run.FC_XNU_PHASE53_TWIG_BRANCH
+    FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS = run.FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS
+    FC_XNU_PHASE53_DESCRIPTOR_BIND_TOTAL_STEPS = run.FC_XNU_PHASE53_DESCRIPTOR_BIND_TOTAL_STEPS
+    FC_XNU_PHASE53_DESCRIPTOR_BIND_MAX_REARMS = run.FC_XNU_PHASE53_DESCRIPTOR_BIND_MAX_REARMS
+    ctx = native_ctx
+    state = phase53_retype_hvc_state
+    roots = state['roots']
+    pending = state['descriptor_pending']
+    current_call = state['current_call']
+    expected_pc = phase53_kernel_runtime(
+        FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_LINKED)
+    checks = {
+        'exact_pc': int(ctx.elr) == expected_pc,
+        'el1t': (int(ctx.spsr) & 15) == 4,
+        'saved_ss_clear': not bool(int(ctx.spsr) & (1 << 21)),
+        'restored_sp': int(ctx.sp[0]) == pending['caller_sp'],
+        'restored_fp': int(ctx.regs[29]) ==
+            int(current_call['saved_fp'], 0),
+        'restored_lr': int(ctx.regs[30]) ==
+            int(current_call['saved_lr'], 0),
+    }
+    record = dict(stage='epilogue', pc=hex(int(ctx.elr)),
+                  esr=hex(int(ctx.esr)), spsr=hex(int(ctx.spsr)))
+    try:
+        filter_status = txm_sstep_fast_path.status()
+        retab_source = phase53_kernel_source(
+            FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_LINKED, 4)
+        retab_leaf, retab_live = phase53_read_live(
+            roots, expected_pc, 4)
+        ldp_source = phase53_kernel_source(
+            FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_LINKED - 4, 4)
+        ldp_leaf, ldp_live = phase53_read_live(
+            roots, expected_pc - 4, 4)
+        wrapper = phase53_wrapper_snapshot(roots, patched=False)
+        checks.update(
+            retab_source=retab_source == struct.pack(
+                '<I', FC_XNU_PHASE53_RETYPE_WRAPPER_RETAB_WORD),
+            retab_live=retab_live == retab_source,
+            retab_level_three=retab_leaf['level'] == 3,
+            retab_access_flag=retab_leaf['access_flag'],
+            ldp_source=ldp_source == struct.pack(
+                '<I', FC_XNU_PHASE53_RETYPE_WRAPPER_WORDS[8]),
+            ldp_live=ldp_live == ldp_source,
+            ldp_level_three=ldp_leaf['level'] == 3,
+            ldp_access_flag=ldp_leaf['access_flag'],
+            wrapper_source_exact=wrapper['source_exact'],
+            wrapper_restored_exact=wrapper['live_exact'],
+            filter_terminal=(not filter_status['active'] and
+                filter_status['status'] ==
+                    FC_VEL2_STEP_FILTER_TERMINAL),
+            filter_one_epilogue_step=
+                filter_status['steps'] == 1,
+            filter_first_pc=filter_status['first_pc'] ==
+                expected_pc - 4,
+            filter_last_pc=filter_status['last_pc'] == expected_pc,
+            filter_previous_pc=filter_status['previous_pc'] ==
+                expected_pc - 4,
+            filter_contract=(
+                filter_status['terminal_pc'] == expected_pc and
+                filter_status['expected_first_pc'] ==
+                    expected_pc - 4 and
+                filter_status['max_steps'] == 4 and
+                filter_status['range0_start'] ==
+                    FC_XNU_RUNTIME_TEXT[0] and
+                filter_status['range0_end'] ==
+                    FC_XNU_RUNTIME_TEXT[1] and
+                filter_status['range1_start'] ==
+                    FC_SPTM_RUNTIME_TEXT[0] and
+                filter_status['range1_end'] ==
+                    FC_SPTM_RUNTIME_TEXT[1]))
+        record.update(
+            filter_status=filter_status,
+            retab_source_hex=retab_source.hex(),
+            retab_live_hex=retab_live.hex(),
+            ldp_source_hex=ldp_source.hex(),
+            ldp_live_hex=ldp_live.hex(), wrapper=wrapper)
+        if not all(checks.values()):
+            raise ValueError('Phase53 HVC epilogue gate rejected')
+        enabled_status = txm_sstep_fast_path.enable(
+            FC_XNU_RUNTIME_TEXT, FC_SPTM_RUNTIME_TEXT,
+            FC_XNU_PHASE53_TWIG_BRANCH,
+            FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS,
+            ctx.elr)
+        state['active'] = False
+        phase53_descriptor_bind_state.update(
+            active=True, roots=roots,
+            range0=FC_XNU_RUNTIME_TEXT,
+            segment_start=ctx.elr,
+            terminal_pc=FC_XNU_PHASE53_TWIG_BRANCH,
+            stage='twig-branch', aggregate_steps=0,
+            rearms=1, world_transitions=[], stages=[],
+            target_pa=pending['target_pa'],
+            target_fte=pending['target_fte'],
+            caller_sp=pending['caller_sp'],
+            report_key='xnu_phase53_descriptor_bind',
+            aggregate_limit=
+                FC_XNU_PHASE53_DESCRIPTOR_BIND_TOTAL_STEPS,
+            rearm_limit=
+                FC_XNU_PHASE53_DESCRIPTOR_BIND_MAX_REARMS,
+            max_steps=FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS)
+        report['xnu_phase53_descriptor_bind'].update(
+            activated=True, current_stage='twig-branch',
+            terminal_pc=hex(FC_XNU_PHASE53_TWIG_BRANCH),
+            expected_first_pc=hex(ctx.elr),
+            target_pa=hex(pending['target_pa']),
+            survey_call_index=pending['call_index'],
+            caller_sp=hex(pending['caller_sp']),
+            aggregate_steps=0, rearms=1, stages=[],
+            world_transitions=[],
+            activation_enable_status=enabled_status)
+        record.update(checks=checks, complete=True,
+                      next_enable_status=enabled_status)
+        current_call['epilogue'] = record
+        report['xnu_phase53_retype_hvc_fast_path'].update(
+            current_stage='complete', expected_phase='complete',
+            epilogue=record, calls=list(state['calls']))
+        event.update(kind='phase53-descriptor-bind-start',
+                     pc=ctx.elr, checks=checks)
+        ctx.spsr.SS = 1
+        u.msr(MDSCR_EL1, u.mrs(MDSCR_EL1) | 1)
+        iface.writemem(info, ExcInfo.build(ctx))
+        report.pop('stop_reason', None)
+        event_state.ret = EXC_RET.HANDLED
+    except Exception as epilogue_error:
+        checks['gate_readback'] = False
+        record.update(checks=checks, complete=False,
+                      error=str(epilogue_error))
+        state['active'] = False
+        current_call['epilogue'] = record
+        report['xnu_phase53_retype_hvc_fast_path'].update(
+            failed=True, rejection=record,
+            calls=list(state['calls']))
+        report['xnu_phase53_retype_survey']['rejection'] = record
+        report['stop_reason'] = (
+            'phase53-retype-hvc-epilogue-gate-rejected')

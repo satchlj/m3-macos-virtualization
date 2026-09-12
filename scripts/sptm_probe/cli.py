@@ -46,6 +46,7 @@ def main():
     ap.add_argument('--xnu-pperm-guest-window-limit', type=int, default=1, help='Maximum complete PPERM guest windows (1..4096); requires --xnu-pperm-guest-window for values other than 1')
     ap.add_argument('--xnu-apple-physical-timer-hypothesis', action='store_true', help='Diagnostic hypothesis: service only the exact attempt-65 Apple timer trap through candidate guest bank S3_4_C15_C4_3 after verifying its retained raw value 6; routing and bit semantics remain inferred; requires --xnu-run')
     ap.add_argument('--xnu-tpidr-gl2-fast-shadow', action='store_true', help='After the verified XNU prefix only, move the existing TPIDR_GL2 HVC shadow into the pinned firmware fast path; requires --xnu-run')
+    ap.add_argument('--xnu-gl1-fast-redirect', action='store_true', help='After the verified XNU prefix only, accelerate the seven pinned GL1 exception-bank HVC sites through live GL12 aliases; requires --xnu-run')
     ap.add_argument('--xnu-txm-context-entry-one-step', action='store_true', help='At the exact verified TXM context-entry ERET only, execute mov sp,x0 and stop at the following software-step; requires --xnu-run')
     ap.add_argument('--xnu-txm-context-entry-register-prefix', action='store_true', help='Execute only the exact deterministic non-memory TXM context-entry prefix and stop before its first CASB; requires --xnu-run')
     ap.add_argument('--xnu-txm-context-stack-claim-one-step', action='store_true', help='After the verified TXM register prefix, execute only its exact CASB 0-to-1 owned-stack claim and stop; requires --xnu-run')
@@ -57,6 +58,7 @@ def main():
     ap.add_argument('--xnu-phase53-allocation-trace', action='store_true', help='After verified cmd1 completion, continue with the bounded firmware filter to the exact XNU allocation call; requires cmd1 completion fast path')
     ap.add_argument('--xnu-phase53-retype-survey', action='store_true', help='After the verified Phase 5.3 allocation retype, survey at most 64 subsequent common-wrapper retypes and stop at the first XNU root/page-table target')
     ap.add_argument('--xnu-phase53-retype-survey-limit', type=int, default=64, help='Maximum completed common-wrapper retypes in the Phase 5.3 survey (1..64)')
+    ap.add_argument('--xnu-phase53-retype-hvc-fast-path', action='store_true', help='Late-patch three pinned common-wrapper MOVs with strict PRE/GENTER/POST HVC callbacks, eliminating survey seek loops while proving actual genter arguments; requires the Phase 5.3 retype survey and GL1 fast redirect')
     ap.add_argument('--xnu-phase53-descriptor-bind', action='store_true', help='After the primary 0xb-to-0x14 survey target, verify the bounded selector-3 L2 descriptor bind; requires the Phase 5.3 retype survey')
     ap.add_argument('--xnu-phase53-leaf-page-bind', action='store_true', help='After the verified selector-3 L2 descriptor bind, verify the bounded selector-2 leaf-page bind; requires the Phase 5.3 descriptor bind')
     ap.add_argument('--xnu-phase53-adt-entropy-replay', action='store_true', help='Replace only /chosen random-seed, cl4-entropy, and boot-nonce in the constructed guest ADT with the pinned Attempt108 values; requires the Phase 5.3 retype survey')
@@ -119,6 +121,8 @@ def main():
         ap.error('--xnu-apple-physical-timer-hypothesis requires --xnu-run')
     if a.xnu_tpidr_gl2_fast_shadow and not a.xnu_run:
         ap.error('--xnu-tpidr-gl2-fast-shadow requires --xnu-run')
+    if getattr(a, 'xnu_gl1_fast_redirect', False) and not a.xnu_run:
+        ap.error('--xnu-gl1-fast-redirect requires --xnu-run')
     if a.xnu_txm_context_entry_one_step and not a.xnu_run:
         ap.error('--xnu-txm-context-entry-one-step requires --xnu-run')
     if a.xnu_txm_context_entry_register_prefix and not a.xnu_run:
@@ -147,6 +151,10 @@ def main():
     if (a.xnu_phase53_retype_survey_limit != 64 and
             not a.xnu_phase53_retype_survey):
         ap.error('--xnu-phase53-retype-survey-limit requires --xnu-phase53-retype-survey')
+    if (a.xnu_phase53_retype_hvc_fast_path and
+            (not a.xnu_phase53_retype_survey or
+             not a.xnu_gl1_fast_redirect)):
+        ap.error('--xnu-phase53-retype-hvc-fast-path requires --xnu-phase53-retype-survey and --xnu-gl1-fast-redirect')
     if a.xnu_phase53_descriptor_bind and not a.xnu_phase53_retype_survey:
         ap.error('--xnu-phase53-descriptor-bind requires --xnu-phase53-retype-survey')
     if a.xnu_phase53_leaf_page_bind and not a.xnu_phase53_descriptor_bind:

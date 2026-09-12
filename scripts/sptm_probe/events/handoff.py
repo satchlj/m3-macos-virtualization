@@ -38,6 +38,20 @@ def handle_bounded_handoff(run, event_state):
                         event_state.fast_shadow_ready = False
                         run.report['xnu_tpidr_gl2_fast_shadow']['activation_error'] = str(fast_shadow_error)
                         run.report['stop_reason'] = 'xnu-tpidr-gl2-fast-shadow-enable-failed'
+                if (getattr(run.a, 'xnu_gl1_fast_redirect', False) and
+                        event_state.fast_shadow_ready):
+                    try:
+                        event_state.gl1_enabled_status = run.gl1_fast_redirect.enable(
+                            run.FC_IMAGE_BASE, run.gl1_fast_tags)
+                        run.report['xnu_gl1_fast_redirect'].update(
+                            activated=True,
+                            enable_status=event_state.gl1_enabled_status,
+                            activated_at_trace_index=run.trace_count(run.report),
+                            activated_from_pc=hex(event_state.ctx.elr))
+                    except Exception as gl1_fast_error:
+                        event_state.fast_shadow_ready = False
+                        run.report['xnu_gl1_fast_redirect']['activation_error'] = str(gl1_fast_error)
+                        run.report['stop_reason'] = 'xnu-gl1-fast-redirect-enable-failed'
                 if event_state.fast_shadow_ready:
                     run.handoff_state.update(active=False, native=True)
                     event_state.ctx.spsr.SS = 0

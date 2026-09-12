@@ -152,3 +152,21 @@ seconds. Both again record `started_windows=2`, `completed_windows=2`, and
 untouched, and no cleanup write required. The fast path handles no PPERM or GL1
 traffic; those callbacks remain host-visible. See
 [the fast-shadow evidence](xnu-tpidr-gl2-fast-shadow.md).
+
+## Atomic permission window — attempt 136
+
+Attempt 136 reached a second, source-pinned index-2 PPERM sequence around the
+64-bit atomic operation in `pmap_ro_zone_atomic_op_internal`. The four linked
+sites are `0xfffffe000b800508`, `0xfffffe000b800514`,
+`0xfffffe000b800668`, and `0xfffffe000b800674`; their words are the expected
+MRS/MSR/MRS/MSR sequence. This is another instance of the already validated
+A-to-B, operation, B-to-A guest-bank contract, not justification to emulate the
+atomic instruction or skip a later WFE.
+
+The opt-in patch therefore covers eight exact sites split into `memcpy` and
+`atomic` families. Each family has local steps zero through three and distinct
+HVC tags. The handler rejects cross-family interleaving, preserves the immutable
+full-register baseline, reports crossing counts separately, and remains cleanup
+eligible from the first writable-bank write until verified restoration. The
+source pins, both ordered families, readback failures, drift, and bounded limit
+behavior are covered by host tests. Raw diagnostic material remains outside Git.

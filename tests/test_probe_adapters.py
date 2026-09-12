@@ -1,5 +1,6 @@
 """Adapters regression tests, preserved from test_probe_controls."""
 from pathlib import Path
+import struct
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -11,7 +12,100 @@ from sptm_entry_probe import (
     TpidrGl2FastShadow,
     audit_and_disable_tpidr_gl2_fast_shadow,
     Vel2StepFilter,
+    Gl1FastRedirect,
+    GL1_FAST_SITE_CONTRACT,
+    verify_gl1_fast_rewrite,
 )
+
+
+class Gl1FastRedirectProxy:
+    FIELDS = (
+        'enabled', 'pc_base', 'spsr_tag', 'aspsr_tag', 'esr_tag', 'elr_tag',
+        'handled', 'forwarded', 'write_spsr', 'write_elr', 'read_aspsr',
+        'write_aspsr', 'read_esr', 'read_spsr', 'read_elr')
+
+    def __init__(self):
+        self.state = {name: False if name == 'enabled' else 0
+                      for name in self.FIELDS}
+        self.calls = []
+
+    def hv_vel2_gl1_fast_enable(self, pc_base, tags):
+        self.calls.append(('enable', pc_base, dict(tags)))
+        self.state.update(
+            enabled=True, pc_base=pc_base, spsr_tag=tags['SPSR_GL1'],
+            aspsr_tag=tags['ASPSR_GL1'], esr_tag=tags['ESR_GL1'],
+            elr_tag=tags['ELR_GL1'])
+
+    def hv_vel2_gl1_fast_status(self):
+        self.calls.append(('status',))
+        return dict(self.state)
+
+    def hv_vel2_gl1_fast_disable(self):
+        self.calls.append(('disable',))
+        self.state.update({name: False if name == 'enabled' else 0
+                           for name in self.FIELDS})
+
+class Gl1FastRedirectTests(unittest.TestCase):
+    BASE = 0xfffffe0007004000
+    TAGS = dict(SPSR_GL1=0xaf80, ASPSR_GL1=0xafc0,
+                ESR_GL1=0xb000, ELR_GL1=0xb040)
+
+    def test_strict_lifecycle_and_counter_audit(self):
+        proxy = Gl1FastRedirectProxy()
+        adapter = Gl1FastRedirect(proxy)
+        self.assertFalse(adapter.prepare()['after']['enabled'])
+        enabled = adapter.enable(self.BASE, self.TAGS)
+        self.assertTrue(enabled['enabled'])
+        proxy.state.update(handled=8232, write_spsr=1176,
+                           write_elr=1176, read_aspsr=1176,
+                           write_aspsr=1176, read_esr=1176,
+                           read_spsr=1176, read_elr=1176)
+        teardown = adapter.disable()
+        self.assertEqual(teardown['before']['handled'], 8232)
+        self.assertFalse(teardown['after']['enabled'])
+
+    def test_bad_schema_tags_and_enable_readback_fail_closed(self):
+        with self.assertRaisesRegex(RuntimeError, 'proxy API unavailable'):
+            Gl1FastRedirect(SimpleNamespace())
+        proxy = Gl1FastRedirectProxy()
+        adapter = Gl1FastRedirect(proxy)
+        proxy.hv_vel2_gl1_fast_status = lambda: {'enabled': False}
+        with self.assertRaisesRegex(RuntimeError, 'status missing'):
+            adapter.prepare()
+        proxy = Gl1FastRedirectProxy()
+        adapter = Gl1FastRedirect(proxy)
+        with self.assertRaisesRegex(RuntimeError, 'not distinct'):
+            adapter.enable(self.BASE, dict(self.TAGS, ELR_GL1=0xaf80))
+        original = proxy.hv_vel2_gl1_fast_status
+        calls = 0
+        def bad_status():
+            nonlocal calls
+            calls += 1
+            result = original()
+            if calls == 1:
+                result['pc_base'] ^= 0x4000
+            return result
+        proxy.hv_vel2_gl1_fast_status = bad_status
+        with self.assertRaisesRegex(RuntimeError, 'readback mismatch'):
+            adapter.enable(self.BASE, self.TAGS)
+        self.assertIn(('disable',), proxy.calls)
+
+    def test_exact_pinned_source_and_hvc_rewrite_contract(self):
+        size = max(site[1] for site in GL1_FAST_SITE_CONTRACT)
+        original = bytearray(size)
+        rewritten = bytearray(size)
+        for _, post, word, register, imm_low in GL1_FAST_SITE_CONTRACT:
+            struct.pack_into('<I', original, post - 4, word)
+            imm = self.TAGS[register] | imm_low
+            struct.pack_into('<I', rewritten, post - 4,
+                             0xd4000002 | (imm << 5))
+        sites = verify_gl1_fast_rewrite(
+            original, rewritten, 0, self.TAGS)
+        self.assertEqual(len(sites), 7)
+        self.assertEqual(sites[0]['rewritten_word'], '0xd415f142')
+        rewritten[GL1_FAST_SITE_CONTRACT[-1][1] - 4] ^= 1
+        with self.assertRaisesRegex(ValueError, 'rewrite drift'):
+            verify_gl1_fast_rewrite(original, rewritten, 0, self.TAGS)
 
 
 class TpidrGl2FastShadowTests(unittest.TestCase):

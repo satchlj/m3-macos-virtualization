@@ -225,13 +225,82 @@ def handle_allocation_step(run, event_state):
             run.report['xnu_phase53_allocation_trace'].update(complete=True, sequence_complete=True, frame_table_evidence=bool(event_state.frame_table_after.get('captured')), frame_table_mutation_observed=event_state.frame_table_after.get('changed') if event_state.frame_table_after.get('captured') else None, retype_result=hex(int(event_state.ctx.regs[0])), retype_status=hex(int(event_state.ctx.regs[0])))
             if getattr(run.a, 'xnu_phase53_retype_survey', False):
                 try:
-                    event_state.survey_enable = run.txm_sstep_fast_path.enable(run.FC_XNU_RUNTIME_TEXT, run.FC_SPTM_RUNTIME_TEXT, run.FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY, run.FC_XNU_PHASE53_RETYPE_SURVEY_FAST_STEPS, event_state.ctx.elr)
-                    run.phase53_retype_survey_state.update(active=True, roots=run.phase53_allocation_trace_state['roots'], range0=run.FC_XNU_RUNTIME_TEXT, segment_start=event_state.ctx.elr, terminal_pc=run.FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY, stage='seek-entry', completed_calls=0, aggregate_steps=0, rearms=1, calls=[], max_steps=run.FC_XNU_PHASE53_RETYPE_SURVEY_FAST_STEPS, limit=run.a.xnu_phase53_retype_survey_limit, world_transitions=[])
-                    run.report['xnu_phase53_retype_survey'] = dict(requested=True, activated=True, current_stage='seek-entry', terminal_pc=hex(run.FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY), expected_first_pc=hex(event_state.ctx.elr), call_limit=run.a.xnu_phase53_retype_survey_limit, per_leg_step_limit=run.FC_XNU_PHASE53_RETYPE_SURVEY_FAST_STEPS, aggregate_step_limit=run.FC_XNU_PHASE53_RETYPE_SURVEY_TOTAL_STEPS, rearm_limit=run.FC_XNU_PHASE53_RETYPE_SURVEY_MAX_REARMS, target_types=[hex(value) for value in run.FC_XNU_PHASE53_RETYPE_SURVEY_TARGET_TYPES], primary_target='0xb->0x14', enable_status=event_state.survey_enable, calls=[])
-                    event_state.stage_record['survey_enable_status'] = event_state.survey_enable
+                    event_state.roots = run.phase53_allocation_trace_state['roots']
+                    if run.a.xnu_phase53_retype_hvc_fast_path:
+                        event_state.gl1_status = run.gl1_fast_redirect.status()
+                        event_state.expected_gl1 = dict(
+                            pc_base=run.FC_IMAGE_BASE,
+                            spsr_tag=run.gl1_fast_tags['SPSR_GL1'],
+                            aspsr_tag=run.gl1_fast_tags['ASPSR_GL1'],
+                            esr_tag=run.gl1_fast_tags['ESR_GL1'],
+                            elr_tag=run.gl1_fast_tags['ELR_GL1'])
+                        if (not event_state.gl1_status['enabled'] or any(
+                                event_state.gl1_status[name] != value for
+                                name, value in event_state.expected_gl1.items())):
+                            raise ValueError('GL1 fast redirect activation contract changed')
+                        if any(run.phase53_kernel_runtime(site.linked_pc) !=
+                               site.runtime_pc for site in run.RETYPE_HVC_SITES):
+                            raise ValueError('Phase53 HVC runtime slide changed')
+                        event_state.wrapper_before = run.phase53_wrapper_snapshot(
+                            event_state.roots, patched=False)
+                        if not all(event_state.wrapper_before[name] for name in (
+                                'source_exact', 'live_exact', 'level_three',
+                                'access_flag')):
+                            raise ValueError('Phase53 HVC wrapper activation gate rejected')
+                        event_state.step_filter_disable = run.txm_sstep_fast_path.disable()
+                        run.phase53_retype_hvc_state.update(
+                            roots=event_state.roots, patches_live=True)
+                        event_state.installs = run.phase53_install_retype_hvcs(event_state.roots)
+                        event_state.wrapper = run.phase53_wrapper_snapshot(event_state.roots)
+                        if not all(event_state.wrapper[name] for name in (
+                                'source_exact', 'live_exact', 'level_three',
+                                'access_flag')):
+                            run.phase53_restore_retype_hvcs(event_state.roots)
+                            run.phase53_retype_hvc_state['patches_live'] = False
+                            raise ValueError('Phase53 patched wrapper readback rejected')
+                        event_state.machine = run.RetypeHvcStateMachine(
+                            run.a.xnu_phase53_retype_survey_limit)
+                        run.phase53_retype_hvc_state.update(
+                            active=True, mode='three-site-hvc',
+                            roots=event_state.roots, stage='hvc-pre',
+                            completed_calls=0, calls=[],
+                            limit=run.a.xnu_phase53_retype_survey_limit,
+                            machine=event_state.machine, patches_live=True,
+                            gl1_config={name: event_state.gl1_status[name] for
+                                name in run.Gl1FastRedirect.STATUS_FIELDS[:6]},
+                            gl1_activation_verified=True, filter_disabled=True,
+                            native_continuations=[], continuation_limit=128,
+                            repeated_continuation_limit=64)
+                        run.report['xnu_phase53_retype_survey'] = dict(
+                            requested=True, activated=True, mode='three-site-hvc',
+                            current_stage='hvc-pre',
+                            call_limit=run.a.xnu_phase53_retype_survey_limit,
+                            target_types=[hex(value) for value in
+                                run.FC_XNU_PHASE53_RETYPE_SURVEY_TARGET_TYPES],
+                            primary_target='0xb->0x14', calls=[])
+                        run.report['xnu_phase53_retype_hvc_fast_path'].update(
+                            activated=True, enabled=True, current_stage='PRE',
+                            expected_phase='PRE', completed_calls=0,
+                            native_continuation_limit=128,
+                            native_continuations=[],
+                            wrapper_before=event_state.wrapper_before,
+                            installations=event_state.installs,
+                            wrapper_activation=event_state.wrapper,
+                            step_filter_disable_status=event_state.step_filter_disable,
+                            gl1_activation_status=event_state.gl1_status,
+                            calls=[])
+                        event_state.stage_record['survey_hvc_fast_path'] = True
+                        event_state.ctx.spsr.SS = 0
+                        run.u.msr(run.MDSCR_EL1, run.u.mrs(run.MDSCR_EL1) & ~1)
+                    else:
+                        event_state.survey_enable = run.txm_sstep_fast_path.enable(run.FC_XNU_RUNTIME_TEXT, run.FC_SPTM_RUNTIME_TEXT, run.FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY, run.FC_XNU_PHASE53_RETYPE_SURVEY_FAST_STEPS, event_state.ctx.elr)
+                        run.phase53_retype_survey_state.update(active=True, roots=event_state.roots, range0=run.FC_XNU_RUNTIME_TEXT, segment_start=event_state.ctx.elr, terminal_pc=run.FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY, stage='seek-entry', completed_calls=0, aggregate_steps=0, rearms=1, calls=[], max_steps=run.FC_XNU_PHASE53_RETYPE_SURVEY_FAST_STEPS, limit=run.a.xnu_phase53_retype_survey_limit, world_transitions=[])
+                        run.report['xnu_phase53_retype_survey'] = dict(requested=True, activated=True, current_stage='seek-entry', terminal_pc=hex(run.FC_XNU_PHASE53_RETYPE_WRAPPER_ENTRY), expected_first_pc=hex(event_state.ctx.elr), call_limit=run.a.xnu_phase53_retype_survey_limit, per_leg_step_limit=run.FC_XNU_PHASE53_RETYPE_SURVEY_FAST_STEPS, aggregate_step_limit=run.FC_XNU_PHASE53_RETYPE_SURVEY_TOTAL_STEPS, rearm_limit=run.FC_XNU_PHASE53_RETYPE_SURVEY_MAX_REARMS, target_types=[hex(value) for value in run.FC_XNU_PHASE53_RETYPE_SURVEY_TARGET_TYPES], primary_target='0xb->0x14', enable_status=event_state.survey_enable, calls=[])
+                        event_state.stage_record['survey_enable_status'] = event_state.survey_enable
                     event_state.event['kind'] = 'phase53-retype-survey-start'
-                    event_state.ctx.spsr.SS = 1
-                    run.u.msr(run.MDSCR_EL1, run.u.mrs(run.MDSCR_EL1) | 1)
+                    if not run.a.xnu_phase53_retype_hvc_fast_path:
+                        event_state.ctx.spsr.SS = 1
+                        run.u.msr(run.MDSCR_EL1, run.u.mrs(run.MDSCR_EL1) | 1)
                     run.iface.writemem(event_state.info, run.ExcInfo.build(event_state.ctx))
                     run.report.pop('stop_reason', None)
                     event_state.ret = run.EXC_RET.HANDLED

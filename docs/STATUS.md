@@ -1,4 +1,4 @@
-# Project status — 2026-09-11
+# Project status — 2026-09-12
 
 The active frontier is Phase 5.3: SPTM dynamic-memory services under XNU. The
 project is past early XNU entry and platform diagnostics, but is not at a macOS
@@ -33,6 +33,13 @@ This establishes one bounded dynamic Stage-1 mutation chain, not general SPTM
 semantics or a macOS boot. The raw report, event journal, and archive remain
 outside Git; their hashes and exact evidence boundary are recorded in the
 [leaf-binding note](launch-prep/xnu-phase53-leaf-page-bind.md).
+
+Attempt 143 separately validated the installation, exact readback, native-world
+continuation lane, and cleanup of the three-site retype-survey HVC accelerator.
+It stopped at an over-strict pointer-authenticated helper-return comparison
+before completing a retype, so it changes feedback-loop engineering rather than
+the Phase 5.3 evidence boundary. See the
+[allocation/retype note](launch-prep/xnu-phase53-allocation-retype.md#three-site-hvc-survey-accelerator--attempt-143).
 
 ## What is established
 
