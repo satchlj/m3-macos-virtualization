@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# Copyright The Asahi Linux Contributors (upstream portions).
+# See ../LICENSES/Asahi-m1n1-MIT.txt and ../THIRD_PARTY_NOTICES.md.
 """Offline exact representability audit of upstream SPRR permission mappings.
 
 No page tables or device state are modified. The nibble interpretation follows

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright The Asahi Linux Contributors (upstream portions).
+# See ../LICENSES/Asahi-m1n1-MIT.txt and ../THIRD_PARTY_NOTICES.md.
 """Bounded SPTM instruction trace in isolated guest RAM; not a macOS boot loader."""
 import argparse
 import hashlib

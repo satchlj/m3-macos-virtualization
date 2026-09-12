@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT
+# Copyright The Asahi Linux Contributors (upstream portions).
+# See ../LICENSES/Asahi-m1n1-MIT.txt and ../THIRD_PARTY_NOTICES.md.
 """Request a guarded target reboot and wait for the m1n1 proxy to return.
 
 Calling the proxy P_REBOOT primitive without first clearing the PMU boot-error

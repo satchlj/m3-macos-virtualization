@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright The Asahi Linux Contributors (upstream portions).
+# See ../LICENSES/Asahi-m1n1-MIT.txt and ../THIRD_PARTY_NOTICES.md.
 # SPDX-License-Identifier: MIT
 # RAM reload sequence derived from Asahi m1n1 proxyclient/tools/chainload.py.
 """Load the research runtime from a fresh baseline, preserving boot-data aliases."""

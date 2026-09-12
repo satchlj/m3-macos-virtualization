@@ -82,5 +82,20 @@ redistributes proprietary inputs.
 
 The lock files identify exact upstream repositories, commits, expected source
 hashes, and patch hashes. See [licensing and provenance](LICENSES.md) before
-redistribution; this snapshot does not yet declare a project-wide license for all
-unmarked files.
+redistribution. Original work is MIT licensed, with a GPL-2.0-or-later
+exception for the QEMU-derived layout module and preserved upstream notices.
+See [third-party credits](THIRD_PARTY_NOTICES.md) and the
+[public-release review](docs/PUBLIC-RELEASE-REVIEW.md).
+
+## Credits and project identity
+
+This is an independent research project built on Asahi Linux’s m1n1 and
+Apple Silicon reverse-engineering work. We thank the Asahi Linux contributors
+for the bootloader, hypervisor, proxy tools, and public hardware documentation
+that make this work possible. The layout work also builds on jprx/qemu-sptm.
+
+This project is not affiliated with or endorsed by Asahi Linux, Apple, QEMU,
+or Omarchy. Their names identify upstream work, references, and compatible
+hardware/software; their logos are not this project’s branding. The source
+release contains no logo assets. Locally built upstream m1n1 images still
+include upstream artwork and are not covered by this source-release review.

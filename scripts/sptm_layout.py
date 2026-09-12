@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Derived from jprx/qemu-sptm hw/arm/xnuboot_sptm.c at
+# 6c3ca665bab9a08399f4681e4ada43bfcfb7d493; see ../THIRD_PARTY_NOTICES.md.
+# Local adaptation and subsequent modifications: 2026 M3 Tahoe research contributors.
 """Offline segmented SPTM/TXM/BootKC placement from the pinned public QEMU loader.
 
 Reads Mach-O headers and load commands only. A layout is not a boot-readiness claim.
