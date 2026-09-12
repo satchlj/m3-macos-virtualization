@@ -45,6 +45,10 @@ GL1_FAST_SITE_CONTRACT = (
     ('read_esr', 0xa052c, 0xd53efaa8, 'ESR_GL1', 0x28),
     ('read_spsr', 0xa0a94, 0xd53efa6a, 'SPSR_GL1', 0x2a),
     ('read_elr', 0xa0aa4, 0xd53efaca, 'ELR_GL1', 0x2a),
+    ('nested_write_elr', 0xa0014, 0xd51efac1, 'ELR_GL1', 0x01),
+    ('nested_write_spsr', 0xa0074, 0xd51efa6a, 'SPSR_GL1', 0x0a),
+    ('nested_read_esr_0', 0xa1e5c, 0xd53efaa8, 'ESR_GL1', 0x28),
+    ('nested_read_esr_1', 0xa1f7c, 0xd53efaa8, 'ESR_GL1', 0x28),
 )
 FC_IDLE_PC = 0xfffffe00070f8b88  # NOT idle: this wfe;b is SPTM's PANIC HALT (inside the panic fn 0xf8980, reached via 0xf8ca0). Treat a stop here as a panic.
 FC_GENTER = 0x00201420             # genter #0 -> guarded-ESR type 0 (guarded call)

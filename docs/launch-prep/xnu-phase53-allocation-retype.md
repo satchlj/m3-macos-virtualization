@@ -92,9 +92,9 @@ source-pinned instructions in the common retype wrapper: PRE at linked
 `0xfffffe000bf7a4b8`, GENTER at `0xfffffe000bf7a4c0`, and POST at
 `0xfffffe000bf7a4cc`. The isolated live image is patched only after the
 allocation proof and wrapper/source/readback gates pass. Strict ordering,
-caller-frame and FTE checks, exact native ERET continuations, seven GL1 counter
-deltas, bounded call counts, idempotent restoration, and teardown disablement
-remain mandatory.
+caller-frame and FTE checks, exact native ERET continuations, seven base GL1
+counter deltas, an optional all-or-none four-site nested GL1 sequence, bounded
+call counts, idempotent restoration, and teardown disablement remain mandatory.
 
 Attempt 143 installed and read back all three exact HVC words, accepted six
 single-step-off native world continuations, and completed the PRE callback. It
@@ -106,3 +106,28 @@ it does not relax any ownership, FTE, counter, or cleanup gate. All three live
 words were restored and both firmware accelerators were disabled before exit.
 Only this bounded summary is published; the run configuration, report, event
 journal, device details, and payloads remain outside Git.
+
+## Corrected accelerator — attempt 147
+
+The helper-return gate now reconstructs the canonical kernel address from the
+authenticated link register's low 40-bit VA payload and still requires an exact
+match to the source-pinned return PC. Exact HVC-owned ERET transitions retain
+their source instruction, target mapping and bytes, translation roots, and
+banked PSTATE as bounded certificates; only an identical later transition can
+use the replay lane.
+
+Attempt 147 completed 14 retype calls and 15 exact native ERET continuations.
+Every call crossed each of the seven base GL1 redirect sites once with no
+forwarded access. Thirteen calls had no nested sequence; one crossed all four
+nested sites exactly once. A partial or repeated nested sequence remains a
+fail-closed rejection.
+
+The run also re-established the bounded descriptor and leaf-binding result and
+completed 20 exact permission windows: 17 memcpy-family and three atomic-family
+windows. It returned cleanly when the 90.29-second watchdog fired at a host
+callback boundary, restored the temporary live-image changes, disabled the
+firmware accelerators, and retained a responsive proxy. No AIC access was
+observed, mapped, read, or written. This is accelerator and continuation
+evidence, not a new general SPTM or AIC result. The raw configuration, report,
+event stream, target identifiers, proprietary inputs, and archive digests are
+not published.

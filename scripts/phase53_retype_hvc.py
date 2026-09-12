@@ -13,6 +13,7 @@ from dataclasses import dataclass
 HVC_BASE_WORD = 0xd4000002
 HVC_IMMEDIATE_MASK = 0xffff
 MAX_RETYPE_CALLS = 64
+PAC_ADDRESS_BITS = 40
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,16 @@ def encode_hvc(immediate):
     if type(immediate) is not int or not 0 <= immediate <= HVC_IMMEDIATE_MASK:
         raise ValueError('HVC immediate must be an unsigned 16-bit integer')
     return HVC_BASE_WORD | (immediate << 5)
+
+
+def canonicalize_pac_return(value, expected_pc):
+    """Reconstruct the canonical XNU VA while retaining exact low VA bits."""
+    if type(value) is not int or type(expected_pc) is not int:
+        raise ValueError('PAC return inputs must be integers')
+    if not 0 <= value < 1 << 64 or not 0 <= expected_pc < 1 << 64:
+        raise ValueError('PAC return inputs must be unsigned 64-bit values')
+    mask = (1 << PAC_ADDRESS_BITS) - 1
+    return (expected_pc & ~mask) | (value & mask)
 
 
 def source_pinned_rewrite_plan(read_linked_word):

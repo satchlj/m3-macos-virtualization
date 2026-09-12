@@ -8,7 +8,7 @@ from .constants import *
 
 def verify_gl1_fast_rewrite(source_chunk, rewritten_chunk, segment_fileoff,
                             tags):
-    """Prove the pinned seven source words became the exact configured HVCs."""
+    """Prove every pinned fast-path source word became its exact HVC."""
     sites = []
     for name, post_offset, original_word, register, imm_low in GL1_FAST_SITE_CONTRACT:
         file_offset = post_offset - 4

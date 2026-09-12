@@ -463,6 +463,8 @@ def handle_hvc_site(run, event_state):
             expected_args = tuple(int(value, 0) for value in
                                   current_call['args'])
             gl1_before = gl1_fast_redirect.status()
+            helper1_return = run.canonicalize_pac_return(
+                int(ctx.regs[30]), runtime_pc)
             checks.update(
                 frame_pointer_exact=int(ctx.regs[29]) == frame_sp,
                 frame_level_three=frame_leaf['level'] == 3,
@@ -471,7 +473,7 @@ def handle_hvc_site(run, event_state):
                     int(current_call['saved_fp'], 0),
                 saved_lr_unchanged=saved_lr ==
                     int(current_call['saved_lr'], 0),
-                helper1_return=int(ctx.regs[30]) == runtime_pc,
+                helper1_return=helper1_return == runtime_pc,
                 args_unchanged=tuple(
                     int(ctx.regs[index]) for index in range(4)) ==
                     expected_args,
@@ -481,6 +483,8 @@ def handle_hvc_site(run, event_state):
                 frame_sp=hex(frame_sp), frame_pa=hex(frame_leaf['pa']),
                 frame_hex=frame.hex(),
                 args=[hex(int(ctx.regs[index])) for index in range(4)],
+                helper1_x30=hex(int(ctx.regs[30])),
+                helper1_return=hex(helper1_return),
                 gl1_status=gl1_before)
             if not all(checks.values()):
                 raise ValueError('Phase53 GENTER HVC gate rejected')
@@ -517,13 +521,10 @@ def handle_hvc_site(run, event_state):
             before = current_call['frame_table_before']
             gl1_before = current_call['gl1_before']
             gl1_after = gl1_fast_redirect.status()
-            counter_names = Gl1FastRedirect.STATUS_FIELDS[8:]
-            counter_deltas = {
-                name: gl1_after[name] - gl1_before[name]
-                for name in counter_names}
-            aggregate_deltas = {
-                name: gl1_after[name] - gl1_before[name]
-                for name in ('handled', 'forwarded')}
+            helper2_return = run.canonicalize_pac_return(
+                int(ctx.regs[30]), runtime_pc)
+            counter_deltas, aggregate_deltas, gl1_delta_checks = (
+                run.phase53_hvc_gl1_counter_checks(gl1_before, gl1_after))
             checks.update(
                 frame_pointer_exact=int(ctx.regs[29]) == frame_sp,
                 frame_level_three=frame_leaf['level'] == 3,
@@ -532,7 +533,7 @@ def handle_hvc_site(run, event_state):
                     int(current_call['saved_fp'], 0),
                 saved_lr_unchanged=saved_lr ==
                     int(current_call['saved_lr'], 0),
-                helper2_return=int(ctx.regs[30]) == runtime_pc,
+                helper2_return=helper2_return == runtime_pc,
                 fte_base_stable=fte_after['fte_base'] ==
                     before['fte_base'],
                 fte_center_stable=fte_after['center_va'] ==
@@ -540,20 +541,16 @@ def handle_hvc_site(run, event_state):
                 gl1_fast_still_enabled=gl1_after['enabled'],
                 gl1_config_unchanged=all(
                     gl1_after[name] == gl1_before[name] for name in
-                    Gl1FastRedirect.STATUS_FIELDS[:6]),
-                gl1_handled_delta=(gl1_after['handled'] -
-                                   gl1_before['handled']) == 7,
-                gl1_forwarded_delta=(gl1_after['forwarded'] -
-                                     gl1_before['forwarded']) == 0,
-                gl1_each_site_once=all(
-                    delta == 1 for delta in
-                    counter_deltas.values()))
+                    Gl1FastRedirect.STATUS_FIELDS[:6]))
+            checks.update(gl1_delta_checks)
             checks.update(phase53_fte_checks(
                 'fte_after', fte_after, args[2]))
             record.update(
                 call_index=current_call['index'],
                 frame_sp=hex(frame_sp), frame_pa=hex(frame_leaf['pa']),
                 frame_hex=frame.hex(), result=hex(int(ctx.regs[0])),
+                helper2_x30=hex(int(ctx.regs[30])),
+                helper2_return=hex(helper2_return),
                 frame_table=fte_after, gl1_status=gl1_after,
                 gl1_counter_deltas=counter_deltas,
                 gl1_aggregate_deltas=aggregate_deltas)

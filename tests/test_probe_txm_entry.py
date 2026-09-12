@@ -122,6 +122,42 @@ class ProbeTxmEntryTests(ProbeControlFixture, unittest.TestCase):
             'decision'], 'phase53-retype-hvc-native-continuation')
         self.assertNotIn('xnu_txm_context_entry_one_step', self.endpoint.report)
 
+    def test_phase53_retype_hvc_certifies_exact_eret_for_aic_replay(self):
+        ns = self._activate_phase53_retype_hvc_for_unrelated_eret()
+        ns['a'].xnu_aic_observe = True
+        self.endpoint.report['xnu_aic_observe'] = dict(active=True)
+
+        self._txm_context_entry_gate(
+            handler='cmd1-completion-trace', x16=0,
+            target_spsr=0x600013c0)
+
+        certificates = ns['aic_observation_state']['certified_erets']
+        self.assertEqual(len(certificates), 1)
+        self.assertEqual(certificates[0]['target_spsr'], hex(0x600013c0))
+        self.assertEqual(self.endpoint.report['xnu_aic_observe'][
+            'certified_erets'], certificates)
+        self.assertEqual(self.endpoint.report['eret_classifications'][-1][
+            'decision'], 'phase53-retype-hvc-native-continuation')
+
+        ns['phase53_retype_hvc_state'].update(
+            active=False, patches_live=False)
+        ns['aic_observation_state']['active'] = True
+        self._txm_context_entry_gate(
+            handler='cmd1-completion-trace', x16=0,
+            target_spsr=0x400013c0)
+        self.assertEqual(self.endpoint.report['stop_reason'],
+                         'eret-unclassified-target')
+        self.assertEqual(ns['aic_observation_state']['replayed_erets'], 0)
+
+        self._txm_context_entry_gate(
+            handler='cmd1-completion-trace', x16=0,
+            target_spsr=0x600013c0)
+
+        self.assertNotIn('stop_reason', self.endpoint.report)
+        self.assertEqual(self.endpoint.report['eret_classifications'][-1][
+            'decision'], 'aic-certified-world-transition')
+        self.assertEqual(ns['aic_observation_state']['replayed_erets'], 1)
+
     def test_phase53_retype_hvc_rejects_wrapper_return_byte_drift(self):
         ns = self._activate_phase53_retype_hvc_for_unrelated_eret()
         classification = self._phase53_patched_wrapper_return_classification(

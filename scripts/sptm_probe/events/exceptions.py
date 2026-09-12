@@ -112,6 +112,24 @@ def _phase53_hvc_eret(run, event_state):
             native_continuations=list(continuations),
             native_continuation_count=len(continuations),
             native_continuation_limit=state['continuation_limit'])
+        if (getattr(run.a, 'xnu_aic_observe', False) and
+                event_state.handoff.get('bytes_match') is True):
+            certificate = dict(
+                trap_pc=hex(event_state.ctx.elr),
+                source_hex=source_eret.hex(),
+                target_pc=hex(event_state.elr_gl1),
+                target_spsr=hex(event_state.spsr_gl1),
+                translation_roots={name: hex(value) for name, value in
+                                   event_state.roots.items()},
+                target_image=event_state.handoff.get('image'),
+                target_segment=event_state.handoff.get('segment'),
+                target_linked_pc=event_state.handoff.get('linked_pc'),
+                target_bytes_hex=event_state.handoff.get('bytes_hex'))
+            certificates = run.aic_observation_state['certified_erets']
+            if certificate not in certificates and len(certificates) < 128:
+                certificates.append(certificate)
+            run.report.setdefault('xnu_aic_observe', {}).update(
+                certified_erets=list(certificates))
         return owner, True
     else:
         state['active'] = False
@@ -270,8 +288,47 @@ def handle_exception(run, event_state):
                     event_state.phase53_filter_state['active'] = False
                     run.report[event_state.phase53_report_key]['world_transition_rejection'] = event_state.transition
                     run.report['stop_reason'] = 'phase53-world-transition-gate-rejected'
+            event_state.aic_certified_eret = False
+            event_state.aic_eret_certificate = None
+            if (event_state.classification_ok and
+                    not event_state.phase53_hvc_eret_owner and
+                    run.aic_observation_state['active'] and
+                    event_state.handoff.get('bytes_match') is True):
+                event_state.aic_source_offset = (
+                    event_state.ctx.elr - 4 - run.FC_IMAGE_BASE)
+                event_state.aic_sptm_source = run.sources.get('sptm', b'')
+                event_state.aic_source_eret = (
+                    event_state.aic_sptm_source[
+                        event_state.aic_source_offset:
+                        event_state.aic_source_offset + 4]
+                    if 0 <= event_state.aic_source_offset <=
+                    len(event_state.aic_sptm_source) - 4 else b'')
+                event_state.aic_eret_certificate = dict(
+                    trap_pc=hex(event_state.ctx.elr),
+                    source_hex=event_state.aic_source_eret.hex(),
+                    target_pc=hex(event_state.elr_gl1),
+                    target_spsr=hex(event_state.spsr_gl1),
+                    translation_roots={name: hex(value) for name, value in
+                                       event_state.roots.items()},
+                    target_image=event_state.handoff.get('image'),
+                    target_segment=event_state.handoff.get('segment'),
+                    target_linked_pc=event_state.handoff.get('linked_pc'),
+                    target_bytes_hex=event_state.handoff.get('bytes_hex'))
+                event_state.aic_certificate_known = (
+                    event_state.aic_eret_certificate in
+                    run.aic_observation_state['certified_erets'])
+                event_state.aic_certified_eret = (
+                    event_state.aic_certificate_known and
+                    run.aic_observation_state['replayed_erets'] < 128)
+                if (event_state.aic_certificate_known and
+                        not event_state.aic_certified_eret):
+                    run.report.setdefault('xnu_aic_observe', {}).update(
+                        certified_eret_replay_limit=128,
+                        certified_eret_replay_limit_reached=True,
+                        rejected_certified_eret=
+                            event_state.aic_eret_certificate)
             event_state.txm_context_step = False
-            if event_state.classification_ok and (run.a.xnu_txm_context_entry_one_step or run.a.xnu_txm_context_entry_register_prefix or run.a.xnu_txm_context_stack_claim_one_step or run.a.xnu_txm_context_stack_metadata_init or run.a.xnu_txm_context_x18_branch_one_step or run.a.xnu_txm_context_outbound_branch_one_step or (run.a.xnu_txm_handler_boundary is not None)) and (event_state.ctx.elr == run.FC_XNU_TXM_CONTEXT_ERET_PC) and (not event_state.entry_launch) and (not event_state.txm_return) and (not event_state.phase53_eret_candidate) and (not event_state.phase53_hvc_eret_owner):
+            if event_state.classification_ok and (run.a.xnu_txm_context_entry_one_step or run.a.xnu_txm_context_entry_register_prefix or run.a.xnu_txm_context_stack_claim_one_step or run.a.xnu_txm_context_stack_metadata_init or run.a.xnu_txm_context_x18_branch_one_step or run.a.xnu_txm_context_outbound_branch_one_step or (run.a.xnu_txm_handler_boundary is not None)) and not run.aic_observation_state['active'] and (event_state.ctx.elr == run.FC_XNU_TXM_CONTEXT_ERET_PC) and (not event_state.entry_launch) and (not event_state.txm_return) and (not event_state.phase53_eret_candidate) and (not event_state.phase53_hvc_eret_owner):
 
                 def owned_page(pa):
                     if pa & run.PAGE - 1 or not run.base <= pa < pa + run.PAGE <= run.base + run.guest_size:
@@ -435,6 +492,16 @@ def handle_exception(run, event_state):
                 event_state.classification['decision'] = 'txm-world-return'
                 run.report.setdefault('txm_world_returns', []).append(event_state.eret_record)
                 run.report['stop_reason'] = 'txm-world-return'
+            elif (event_state.aic_certified_eret and
+                  not event_state.phase53_hvc_eret_owner):
+                event_state.classification['decision'] = (
+                    'aic-certified-world-transition')
+                run.aic_observation_state['replayed_erets'] += 1
+                run.report.setdefault('xnu_aic_observe', {}).update(
+                    certified_eret_replays=
+                        run.aic_observation_state['replayed_erets'],
+                    last_certified_eret=event_state.aic_eret_certificate)
+                run.report['stop_reason'] = 'aic-certified-world-transition'
             if event_state.txm_context_step:
                 event_state.stack = run.FC_XNU_TXM_CONTEXT_STACK
                 event_state.expected_states = [dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 4, sp=event_state.stack, regs={0: event_state.stack}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 8, sp=event_state.stack, regs={0: 1}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 12, sp=event_state.stack, regs={0: 1}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 16, sp=event_state.stack, regs={0: 1}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 20, sp=event_state.stack, regs={0: 1, 8: event_state.stack}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 24, sp=event_state.stack, regs={0: 1, 8: 0}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 40, sp=event_state.stack, regs={0: 1, 8: 0}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 44, sp=event_state.stack, regs={0: 1, 8: event_state.stack}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 48, sp=event_state.stack, regs={0: 1, 8: event_state.stack}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 52, sp=event_state.stack, regs={0: 1, 8: event_state.stack + run.PAGE}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 56, sp=event_state.stack, regs={0: 1, 8: event_state.stack + run.PAGE - 1024}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 60, sp=event_state.stack + run.PAGE - 1024, regs={0: 1, 8: event_state.stack + run.PAGE - 1024}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 64, sp=event_state.stack + run.PAGE - 1024, regs={0: 1, 8: event_state.stack + run.PAGE - 1024 + 88}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 68, sp=event_state.stack + run.PAGE - 1024, regs={0: 1, 8: event_state.stack + run.PAGE - 1024 + 88, 9: 0}), dict(pc=run.FC_XNU_TXM_CONTEXT_TARGET + 72, sp=event_state.stack + run.PAGE - 1024, regs={0: 1, 8: event_state.stack + run.PAGE - 1024 + 88, 9: 0, 10: 1})]
@@ -536,9 +603,11 @@ def handle_exception(run, event_state):
                 run.report.pop('stop_reason', None)
                 event_state.event['kind'] = 'phase53-world-transition'
                 event_state.ret = run.EXC_RET.HANDLED
-            elif ((event_state.entry_launch or event_state.txm_return) and
+            elif ((event_state.entry_launch or event_state.txm_return or
+                   event_state.aic_certified_eret) and
                   not event_state.phase53_hvc_eret_owner):
-                event_state.resume_txm = event_state.txm_return
+                event_state.resume_txm = (event_state.txm_return or
+                                          event_state.aic_certified_eret)
                 if run.a.handoff_steps and event_state.entry_launch or event_state.resume_txm:
                     event_state.ctx.elr = event_state.elr_gl1
                     event_state.ctx.spsr = type(event_state.ctx.spsr)(event_state.spsr_gl1)

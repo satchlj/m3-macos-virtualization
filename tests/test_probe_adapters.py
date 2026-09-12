@@ -14,6 +14,7 @@ from sptm_entry_probe import (
     Vel2StepFilter,
     Gl1FastRedirect,
     GL1_FAST_SITE_CONTRACT,
+    phase53_hvc_gl1_counter_checks,
     verify_gl1_fast_rewrite,
 )
 
@@ -22,7 +23,9 @@ class Gl1FastRedirectProxy:
     FIELDS = (
         'enabled', 'pc_base', 'spsr_tag', 'aspsr_tag', 'esr_tag', 'elr_tag',
         'handled', 'forwarded', 'write_spsr', 'write_elr', 'read_aspsr',
-        'write_aspsr', 'read_esr', 'read_spsr', 'read_elr')
+        'write_aspsr', 'read_esr', 'read_spsr', 'read_elr',
+        'nested_write_elr', 'nested_write_spsr', 'nested_read_esr_0',
+        'nested_read_esr_1')
 
     def __init__(self):
         self.state = {name: False if name == 'enabled' else 0
@@ -101,11 +104,48 @@ class Gl1FastRedirectTests(unittest.TestCase):
                              0xd4000002 | (imm << 5))
         sites = verify_gl1_fast_rewrite(
             original, rewritten, 0, self.TAGS)
-        self.assertEqual(len(sites), 7)
+        self.assertEqual(len(sites), 11)
         self.assertEqual(sites[0]['rewritten_word'], '0xd415f142')
         rewritten[GL1_FAST_SITE_CONTRACT[-1][1] - 4] ^= 1
         with self.assertRaisesRegex(ValueError, 'rewrite drift'):
             verify_gl1_fast_rewrite(original, rewritten, 0, self.TAGS)
+
+    def test_phase53_hvc_counter_contract_accepts_complete_nested_sequence(self):
+        before = Gl1FastRedirectProxy().state
+        after = dict(before, handled=11)
+        for name in Gl1FastRedirect.STATUS_FIELDS[8:15]:
+            after[name] = 1
+        for name in Gl1FastRedirect.STATUS_FIELDS[15:]:
+            after[name] = 1
+        deltas, aggregate, checks = phase53_hvc_gl1_counter_checks(
+            before, after)
+        self.assertTrue(all(checks.values()), (deltas, aggregate, checks))
+
+    def test_phase53_hvc_counter_contract_accepts_no_nested_sequence(self):
+        before = Gl1FastRedirectProxy().state
+        after = dict(before, handled=7)
+        for name in Gl1FastRedirect.STATUS_FIELDS[8:15]:
+            after[name] = 1
+        deltas, aggregate, checks = phase53_hvc_gl1_counter_checks(
+            before, after)
+        self.assertTrue(all(checks.values()), (deltas, aggregate, checks))
+
+    def test_phase53_hvc_counter_contract_rejects_partial_nested_sequence(self):
+        before = Gl1FastRedirectProxy().state
+        after = dict(before, handled=8)
+        for name in Gl1FastRedirect.STATUS_FIELDS[8:15]:
+            after[name] = 1
+        after['nested_write_elr'] = 1
+        _, _, checks = phase53_hvc_gl1_counter_checks(before, after)
+        self.assertFalse(checks['gl1_nested_sequence'])
+
+    def test_phase53_hvc_counter_contract_rejects_forwarded_access(self):
+        before = Gl1FastRedirectProxy().state
+        after = dict(before, handled=7, forwarded=1)
+        for name in Gl1FastRedirect.STATUS_FIELDS[8:15]:
+            after[name] = 1
+        _, _, checks = phase53_hvc_gl1_counter_checks(before, after)
+        self.assertFalse(checks['gl1_forwarded_delta'])
 
 
 class TpidrGl2FastShadowTests(unittest.TestCase):

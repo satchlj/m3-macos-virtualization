@@ -50,7 +50,7 @@ index 0000000..3a6121a
 +        words.append(word)
 +    return b''.join(struct.pack('<I', word) for word in words)
 diff --git a/proxyclient/m1n1/proxy.py b/proxyclient/m1n1/proxy.py
-index 19a0fbd..bcb9883 100644
+index 19a0fbd..fff42e7 100644
 --- a/proxyclient/m1n1/proxy.py
 +++ b/proxyclient/m1n1/proxy.py
 @@ -662,6 +662,16 @@ class M1N1Proxy(Reloadable):
@@ -70,7 +70,7 @@ index 19a0fbd..bcb9883 100644
  
      P_FB_INIT = 0xd00
      P_FB_SHUTDOWN = 0xd01
-@@ -1152,6 +1162,120 @@ class M1N1Proxy(Reloadable):
+@@ -1152,6 +1162,122 @@ class M1N1Proxy(Reloadable):
          return self.request(self.P_HV_EXIT_CPU, cpu)
      def hv_add_time(self, time):
          return self.request(self.P_HV_ADD_TIME, time)
@@ -137,7 +137,9 @@ index 19a0fbd..bcb9883 100644
 +        names = ("enabled", "pc_base", "spsr_tag", "aspsr_tag", "esr_tag",
 +                 "elr_tag", "handled", "forwarded", "write_spsr",
 +                 "write_elr", "read_aspsr", "write_aspsr", "read_esr",
-+                 "read_spsr", "read_elr")
++                 "read_spsr", "read_elr", "nested_write_elr",
++                 "nested_write_spsr", "nested_read_esr_0",
++                 "nested_read_esr_1")
 +        result = dict(zip(names, (self._hv_vel2_gl1_fast_query(i)
 +                                 for i in range(len(names)))))
 +        result["enabled"] = bool(result["enabled"])
@@ -268,10 +270,10 @@ index 11b931c..beeeca9 100644
  
 diff --git a/src/hv_vel2.c b/src/hv_vel2.c
 new file mode 100644
-index 0000000..ba9ba66
+index 0000000..1d56529
 --- /dev/null
 +++ b/src/hv_vel2.c
-@@ -0,0 +1,473 @@
+@@ -0,0 +1,501 @@
 +/* SPDX-License-Identifier: MIT */
 +#include "hv_vel2.h"
 +#include "vel2_state.h"
@@ -311,6 +313,10 @@ index 0000000..ba9ba66
 +    GL1_FAST_READ_ESR,
 +    GL1_FAST_READ_SPSR,
 +    GL1_FAST_READ_ELR,
++    GL1_FAST_NESTED_WRITE_ELR,
++    GL1_FAST_NESTED_WRITE_SPSR,
++    GL1_FAST_NESTED_READ_ESR_0,
++    GL1_FAST_NESTED_READ_ESR_1,
 +    GL1_FAST_SITE_COUNT,
 +};
 +
@@ -425,6 +431,30 @@ index 0000000..ba9ba66
 +            site = GL1_FAST_READ_ELR;
 +            read = true;
 +            imm_low = 0x2a;
++            break;
++        case 0xa0014:
++            reg = GL1_FAST_ELR;
++            site = GL1_FAST_NESTED_WRITE_ELR;
++            read = false;
++            imm_low = 0x01;
++            break;
++        case 0xa0074:
++            reg = GL1_FAST_SPSR;
++            site = GL1_FAST_NESTED_WRITE_SPSR;
++            read = false;
++            imm_low = 0x0a;
++            break;
++        case 0xa1e5c:
++            reg = GL1_FAST_ESR;
++            site = GL1_FAST_NESTED_READ_ESR_0;
++            read = true;
++            imm_low = 0x28;
++            break;
++        case 0xa1f7c:
++            reg = GL1_FAST_ESR;
++            site = GL1_FAST_NESTED_READ_ESR_1;
++            read = true;
++            imm_low = 0x28;
 +            break;
 +        default:
 +            for (u32 i = 0; i < GL1_FAST_REGISTER_COUNT; i++) {
@@ -739,7 +769,7 @@ index 0000000..ba9ba66
 +        }
 +        case 7:
 +            return fast->forwarded;
-+        case 8 ... 14:
++        case 8 ... 8 + GL1_FAST_SITE_COUNT - 1:
 +            return fast->handled[selector - 8];
 +        default:
 +            return UINT64_MAX;
@@ -1212,10 +1242,10 @@ index 0000000..d9a0b85
 +#endif
 diff --git a/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py b/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py
 new file mode 100644
-index 0000000..6323d2c
+index 0000000..ca71eb6
 --- /dev/null
 +++ b/tests/python/test_proxyclient/test_m1n1/test_proxy_vel2.py
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,123 @@
 +# SPDX-License-Identifier: MIT
 +"""Host-independent tests for the virtual EL2 proxy API."""
 +
@@ -1278,7 +1308,8 @@ index 0000000..6323d2c
 +def test_gl1_fast_redirect_enable_status_and_disable():
 +    replies = dict(enumerate((
 +        1, 0xfffffe0007004000, 0xaf80, 0xafc0, 0xb000, 0xb040,
-+        8232, 7, 1176, 1176, 1176, 1176, 1176, 1176, 1176)))
++        8232, 7, 1176, 1176, 1176, 1176, 1176, 1176, 1176,
++        11, 12, 13, 14)))
 +    proxy, calls = proxy_with_replies(replies)
 +    tags = {"SPSR_GL1": 0xaf80, "ASPSR_GL1": 0xafc0,
 +            "ESR_GL1": 0xb000, "ELR_GL1": 0xb040}
@@ -1294,6 +1325,8 @@ index 0000000..6323d2c
 +        "write_spsr": 1176, "write_elr": 1176,
 +        "read_aspsr": 1176, "write_aspsr": 1176,
 +        "read_esr": 1176, "read_spsr": 1176, "read_elr": 1176,
++        "nested_write_elr": 11, "nested_write_spsr": 12,
++        "nested_read_esr_0": 13, "nested_read_esr_1": 14,
 +    }
 +    proxy.hv_vel2_gl1_fast_disable()
 +    assert calls[-1] == (
@@ -1301,9 +1334,9 @@ index 0000000..6323d2c
 +
 +
 +def test_gl1_fast_redirect_rejects_unknown_status_selector():
-+    proxy, _ = proxy_with_replies({15: 0xffffffffffffffff})
++    proxy, _ = proxy_with_replies({19: 0xffffffffffffffff})
 +    with pytest.raises(ValueError):
-+        proxy._hv_vel2_gl1_fast_query(15)
++        proxy._hv_vel2_gl1_fast_query(19)
 +
 +
 +def test_step_filter_enable_status_and_disable():

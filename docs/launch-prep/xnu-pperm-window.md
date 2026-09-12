@@ -170,3 +170,13 @@ full-register baseline, reports crossing counts separately, and remains cleanup
 eligible from the first writable-bank write until verified restoration. The
 source pins, both ordered families, readback failures, drift, and bounded limit
 behavior are covered by host tests. Raw diagnostic material remains outside Git.
+
+## Combined bounded continuation — attempt 147
+
+The corrected Phase 5.3 HVC accelerator reached this mechanism again within a
+90.29-second guarded run. It completed 20 A-to-B-to-A windows: 17 memcpy-family
+windows and three atomic-family windows. The guest returned cleanly at the
+watchdog boundary with no window left modified, and cleanup and proxy-health
+checks passed. No AIC access was observed. This count is bounded run evidence;
+it does not imply all permission-window call sites or later platform bring-up
+are complete. Raw target artifacts and proprietary inputs remain outside Git.

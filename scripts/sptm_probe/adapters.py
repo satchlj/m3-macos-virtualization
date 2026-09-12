@@ -115,7 +115,9 @@ class Gl1FastRedirect:
     STATUS_FIELDS = (
         'enabled', 'pc_base', 'spsr_tag', 'aspsr_tag', 'esr_tag', 'elr_tag',
         'handled', 'forwarded', 'write_spsr', 'write_elr', 'read_aspsr',
-        'write_aspsr', 'read_esr', 'read_spsr', 'read_elr')
+        'write_aspsr', 'read_esr', 'read_spsr', 'read_elr',
+        'nested_write_elr', 'nested_write_spsr', 'nested_read_esr_0',
+        'nested_read_esr_1')
 
     def __init__(self, proxy):
         self.proxy = proxy
@@ -212,6 +214,29 @@ class Gl1FastRedirect:
         if after['enabled']:
             raise RuntimeError('GL1 fast redirect remained enabled at teardown')
         return dict(before=before, after=after)
+
+
+GL1_FAST_BASE_COUNTERS = Gl1FastRedirect.STATUS_FIELDS[8:15]
+GL1_FAST_NESTED_COUNTERS = Gl1FastRedirect.STATUS_FIELDS[15:]
+
+
+def phase53_hvc_gl1_counter_checks(before, after):
+    """Authenticate one base redirect sequence and zero/one nested sequence."""
+    counter_names = GL1_FAST_BASE_COUNTERS + GL1_FAST_NESTED_COUNTERS
+    deltas = {name: after[name] - before[name] for name in counter_names}
+    aggregate = {name: after[name] - before[name]
+                 for name in ('handled', 'forwarded')}
+    nested_complete = any(
+        all(deltas[name] == count for name in GL1_FAST_NESTED_COUNTERS)
+        for count in (0, 1))
+    checks = dict(
+        gl1_handled_delta=aggregate['handled'] ==
+            7 + sum(deltas[name] for name in GL1_FAST_NESTED_COUNTERS),
+        gl1_forwarded_delta=aggregate['forwarded'] == 0,
+        gl1_each_base_site_once=all(
+            deltas[name] == 1 for name in GL1_FAST_BASE_COUNTERS),
+        gl1_nested_sequence=nested_complete)
+    return deltas, aggregate, checks
 
 
 class Vel2StepFilter:

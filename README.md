@@ -21,7 +21,7 @@ credentials, or a prebuilt boot image.
 | Reproduce the source environment | [Setup guide](setup/README.md) |
 | Make a contribution | [Contributing](CONTRIBUTING.md) |
 
-## Current result — September 11, 2026
+## Current result — September 12, 2026
 
 Attempt 119 completed the bounded Phase 5.3 objective on an M3/J613: one
 kernel-driven allocation and ownership-transfer chain was tied to a live
@@ -38,6 +38,11 @@ Hardware findings are documented here, but raw captures and proprietary inputs
 are retained outside Git. A fresh clone can run synthetic host checks; it cannot
 independently replay every hardware finding. Read the
 [evidence model](docs/SAFETY.md) when assessing claims.
+
+The latest accelerator validation completed 14 source-gated retype calls, one
+complete nested GL1 transition sequence, and 20 exact permission windows before
+a clean watchdog return. It observed no AIC access and does not expand the
+bounded Phase 5.3 claim.
 
 ## Repository map
 

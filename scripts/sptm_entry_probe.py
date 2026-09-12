@@ -11,6 +11,7 @@ from sptm_probe.adapters import (
     TpidrGl2FastShadow, Gl1FastRedirect,
     Vel2StepFilter,
     audit_and_disable_tpidr_gl2_fast_shadow,
+    phase53_hvc_gl1_counter_checks,
 )
 from sptm_probe.platform import *
 from sptm_probe.runtime import run_probe, plan

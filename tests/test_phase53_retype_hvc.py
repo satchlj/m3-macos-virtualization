@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from phase53_retype_hvc import (GENTER_SITE, MAX_RETYPE_CALLS, POST_SITE, PRE_SITE,
                                 RETYPE_HVC_SITES,
                                 RetypeHvcStateMachine,
+                                canonicalize_pac_return,
                                 source_pinned_rewrite_plan,
                                 verify_hvc_rewrites)
 from run_probe_pipeline import probe_command, summarize_report
@@ -90,6 +91,29 @@ class Phase53RetypeHvcTests(unittest.TestCase):
         rewrites[POST_SITE.linked_pc] ^= 1
         with self.assertRaisesRegex(ValueError, 'POST HVC rewrite mismatch'):
             verify_hvc_rewrites(rewrites.__getitem__)
+
+    def test_pac_signed_helper_returns_normalize_to_runtime_pc(self):
+        fixtures = (
+            (0xe8e17e002bf7a4c0, GENTER_SITE.runtime_pc),
+            (0x35ad7e002bf7a4cc, POST_SITE.runtime_pc),
+        )
+        for signed_x30, runtime_pc in fixtures:
+            with self.subTest(runtime_pc=hex(runtime_pc)):
+                self.assertNotEqual(signed_x30, runtime_pc)
+                self.assertEqual(
+                    canonicalize_pac_return(signed_x30, runtime_pc),
+                    runtime_pc)
+
+    def test_pac_signed_helper_returns_reject_low_40_bit_drift(self):
+        fixtures = (
+            (0xe8e17e002bf7a4c0, GENTER_SITE.runtime_pc),
+            (0x35ad7e002bf7a4cc, POST_SITE.runtime_pc),
+        )
+        for signed_x30, runtime_pc in fixtures:
+            with self.subTest(runtime_pc=hex(runtime_pc)):
+                self.assertNotEqual(
+                    canonicalize_pac_return(signed_x30 ^ 1, runtime_pc),
+                    runtime_pc)
 
     def test_kernel_chunk_patch_is_atomic_and_source_pinned(self):
         segment = {'va': PRE_SITE.linked_pc - 8}

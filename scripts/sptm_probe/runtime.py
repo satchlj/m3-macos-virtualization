@@ -30,6 +30,7 @@ from phase53_retype_hvc import (GENTER_SITE as PHASE53_RETYPE_GENTER_SITE,
                                 PRE_SITE as PHASE53_RETYPE_PRE_SITE,
                                 RETYPE_HVC_SITES,
                                 RetypeHvcStateMachine,
+                                canonicalize_pac_return,
                                 source_pinned_rewrite_plan)
 
 from functools import partial
@@ -39,6 +40,7 @@ from .adapters import (
     TpidrGl2FastShadow,
     Vel2StepFilter,
     audit_and_disable_tpidr_gl2_fast_shadow,
+    phase53_hvc_gl1_counter_checks,
 )
 from .platform import *
 from .callback import RunBindings, stopped as dispatch_event
@@ -333,7 +335,8 @@ def run_probe(a, report, save, capture):
             'verified allocation trace plus three atomically source-pinned wrapper rewrites'),
         scope_limits=(
             'strict PRE/GENTER/POST ordering; exact source/live wrapper, caller frame, '
-            'owned FTE, and seven GL1 counter deltas; at most 64 calls'))
+            'owned FTE, seven base GL1 redirects, and an optional exact four-site '
+            'nested redirect sequence; at most 64 calls'))
     report['xnu_phase53_descriptor_bind'] = dict(
         requested=bool(a.xnu_phase53_descriptor_bind), activated=False,
         per_leg_step_limit=FC_XNU_PHASE53_DESCRIPTOR_BIND_FAST_STEPS,
@@ -396,10 +399,10 @@ def run_probe(a, report, save, capture):
         pc_base=hex(FC_IMAGE_BASE),
         tags={name: hex(value) for name, value in gl1_fast_tags.items()},
         activation_gate=(
-            'verified kernelcache continuation plus seven pinned source/HVC words, '
+            'verified kernelcache continuation plus eleven pinned source/HVC words, '
             'before native handoff and SS clear'),
         scope_limits=(
-            'accelerates only seven exact post-HVC PC/full-immediate pairs through '
+            'accelerates only eleven exact post-HVC PC/full-immediate pairs through '
             'live GL12 aliases; every other guarded access remains host-visible'))
     if getattr(a, 'xnu_gl1_fast_redirect', False):
         try:
@@ -644,6 +647,8 @@ def run_probe(a, report, save, capture):
     phase53_retype_survey_state = dict(active=False)
     phase53_retype_hvc_state = dict(active=False)
     phase53_descriptor_bind_state = dict(active=False)
+    aic_observation_state = dict(
+        active=False, certified_erets=[], replayed_erets=0)
     xnu_agt_state = dict(previous=None, writes=0)
     xnu_cntp_ctl_state = dict(previous=None, writes=0)
     xnu_pperm_state = dict(previous=None, step=0, window_type=None, modified=False,

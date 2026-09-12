@@ -1,8 +1,8 @@
 # Project status — 2026-09-12
 
-The active frontier is Phase 5.3: SPTM dynamic-memory services under XNU. The
-project is past early XNU entry and platform diagnostics, but is not at a macOS
-boot or GPU bring-up milestone.
+The bounded Phase 5.3 objective is complete and Phase 5.4 AIC observation is the
+active frontier. The project is past early XNU entry and platform diagnostics,
+but is not at a macOS boot or GPU bring-up milestone.
 
 [Repository home](../README.md) · [Overview](OVERVIEW.md) · [Documentation index](README.md)
 
@@ -34,12 +34,15 @@ semantics or a macOS boot. The raw report, event journal, and archive remain
 outside Git; their hashes and exact evidence boundary are recorded in the
 [leaf-binding note](launch-prep/xnu-phase53-leaf-page-bind.md).
 
-Attempt 143 separately validated the installation, exact readback, native-world
-continuation lane, and cleanup of the three-site retype-survey HVC accelerator.
-It stopped at an over-strict pointer-authenticated helper-return comparison
-before completing a retype, so it changes feedback-loop engineering rather than
-the Phase 5.3 evidence boundary. See the
-[allocation/retype note](launch-prep/xnu-phase53-allocation-retype.md#three-site-hvc-survey-accelerator--attempt-143).
+Attempt 147 separately validated the corrected three-site retype-survey HVC
+accelerator. Fourteen calls passed the pointer-authenticated helper-return,
+frame/FTE, exact-ERET, and GL1 counter gates; thirteen used the seven-site base
+sequence and one used the complete four-site nested sequence. The same run
+re-established descriptor and leaf completion, completed 20 exact PPERM windows
+(17 memcpy and three atomic), and returned cleanly at the 90.29-second watchdog
+boundary. No AIC access was observed, mapped, read, or written. This improves the
+feedback path but does not widen the Phase 5.3 evidence claim. See the
+[allocation/retype note](launch-prep/xnu-phase53-allocation-retype.md#corrected-accelerator--attempt-147).
 
 ## What is established
 

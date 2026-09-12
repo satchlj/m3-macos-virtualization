@@ -21,7 +21,9 @@ from types import SimpleNamespace
 
 from guest_debug import GuestDebugState, MDSCR_EL1, OSLAR_EL1, UnsupportedGuestDebug
 from guest_pt import PAGE, validate_monitor_entry, validate_root_switch, translate
+from phase53_retype_hvc import canonicalize_pac_return
 from sprr_permissions import leaf_permissions
+from sptm_probe.adapters import phase53_hvc_gl1_counter_checks
 from zero_loop import recognize as recognize_zero_loop
 
 REPO = Path(__file__).resolve().parents[1]
@@ -174,6 +176,9 @@ class CallbackReplay:
                          validate_root_switch=validate_root_switch,
                          capture=SimpleNamespace(save_input=lambda name, data: self.inputs.__setitem__(name, data)),
                          recognize_zero_loop=recognize_zero_loop,
+                         canonicalize_pac_return=canonicalize_pac_return,
+                         phase53_hvc_gl1_counter_checks=
+                             phase53_hvc_gl1_counter_checks,
                          a=SimpleNamespace(steps=steps, allow_monitor_mmu=allow_monitor_mmu, allow_live_ttbr=allow_live_ttbr,
                                            emulate_zero_loops=False, stop_on_vector_entry=False, pause_on_guard=False,
                                            observe_sprr=observe_sprr, virtual_gxf=virtual_gxf, stage_el2_config=stage_el2_config,
@@ -201,6 +206,7 @@ class CallbackReplay:
                                            xnu_phase53_retype_hvc_fast_path=False,
                                            xnu_phase53_descriptor_bind=False,
                                            xnu_phase53_leaf_page_bind=False,
+                                           xnu_aic_observe=False,
                                            on_demand_stage2=0,
                                            single_step_window=None, stop_on_guarded_vector=False,
                                            first_contact=False, guarded_call_selectors=None), save=self.save,
@@ -213,6 +219,9 @@ class CallbackReplay:
                          phase53_retype_survey_state=dict(active=False),
                          phase53_retype_hvc_state=dict(active=False),
                          phase53_descriptor_bind_state=dict(active=False),
+                         aic_observation_state=dict(
+                             active=False, certified_erets=[],
+                             replayed_erets=0),
                          dockchannel_mmio=None,
                          panic_carveout=None,
                          socd_trace=None,
